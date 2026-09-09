@@ -34,7 +34,7 @@ private:
     void loadBalances();
     void loadReceive();
     void pollSend();
-    QString qrSvgDataUri(const QString &text) const;
+    QString qrModulesJson(const QString &text) const;
 
     QTimer m_poll;
     QTimer m_sendPoll;

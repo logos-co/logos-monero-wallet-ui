@@ -19,7 +19,7 @@ class MoneroWalletUi
     // { address, subaddresses: [{ index, address, label }] }
     PROP(QString receiveJson="" READONLY)
     // A data: URI (SVG) of the primary address, rendered here — the design system has no QR.
-    PROP(QString qrDataUri="" READONLY)
+    PROP(QString qrModulesJson="" READONLY)
     // { rows: [...] } newest first, amounts as atomic strings + XMR strings.
     PROP(QString historyJson="" READONLY)
     // The send in flight, "" when none, and its status: { state, preview, txids, error }.

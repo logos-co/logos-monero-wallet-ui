@@ -58,6 +58,20 @@ Item {
 
     property int page: 0
     function selectTab(i) { root.page = i }
+    function parseQr(s) { try { return s ? JSON.parse(s) : null } catch (e) { return null } }
+    function qrRuns(qr) {
+        const runs = []
+        for (let y = 0; y < qr.size; y++) {
+            let x = 0
+            while (x < qr.size) {
+                if (qr.bits.charAt(y * qr.size + x) !== "1") { x++; continue }
+                const start = x
+                while (x < qr.size && qr.bits.charAt(y * qr.size + x) === "1") x++
+                runs.push([start, y, x - start])
+            }
+        }
+        return runs
+    }
 
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 16; spacing: 10
@@ -162,7 +176,26 @@ Item {
                 spacing: 8
                 LogosText { objectName: "receiveAddress"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
                             text: root.receiveRead ? receive.address : "—" }
-                Image { objectName: "qrImage"; source: root.ready ? backend.qrDataUri : ""; visible: source !== ""; sourceSize.width: 220; sourceSize.height: 220; fillMode: Image.PreserveAspectFit }
+                // Plain rectangles, one per run of dark modules: the sandbox refuses every URL
+                // import (data: URIs included) and a Canvas never receives paint() in this host.
+                Rectangle {
+                    id: qrBox
+                    objectName: "qrBox"
+                    readonly property var qr: root.ready ? root.parseQr(backend.qrModulesJson) : null
+                    readonly property int quiet: 2
+                    readonly property int cell: qr ? Math.max(1, Math.floor(220 / (qr.size + quiet * 2))) : 0
+                    visible: !!qr
+                    color: "#ffffff"
+                    Layout.preferredWidth: qr ? cell * (qr.size + quiet * 2) : 0
+                    Layout.preferredHeight: Layout.preferredWidth
+                    Repeater {
+                        model: qrBox.qr ? root.qrRuns(qrBox.qr) : []
+                        Rectangle {
+                            x: (modelData[0] + qrBox.quiet) * qrBox.cell; y: (modelData[1] + qrBox.quiet) * qrBox.cell
+                            width: modelData[2] * qrBox.cell; height: qrBox.cell; color: "#000000"
+                        }
+                    }
+                }
                 RowLayout {
                     TextField { id: subLabel; placeholderText: "Subaddress label"; Layout.fillWidth: true }
                     LogosButton { text: "New subaddress"; onClicked: { backend.createSubaddress(subLabel.text); subLabel.text = "" } }

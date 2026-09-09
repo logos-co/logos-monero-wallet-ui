@@ -64,27 +64,26 @@ void MoneroWalletUiBackend::loadBalances() {
 void MoneroWalletUiBackend::loadReceive() {
     const QJsonObject st = parse(statusJson());
     const QString state = st.value("state").toString();
-    if (state != "ready" && state != "syncing") { setReceiveJson({}); setQrDataUri({}); return; }
+    if (state != "ready" && state != "syncing") { setReceiveJson({}); setQrModulesJson({}); return; }
     const QString r = modules().monero_wallet_backend.receive_info(0);
     if (!ok(r, "receive")) { setReceiveJson({}); return; }
     setReceiveJson(stripOk(r));
     const QString addr = parse(r).value("address").toString();
-    if (!addr.isEmpty() && addr != m_lastQrFor) { m_lastQrFor = addr; setQrDataUri(qrSvgDataUri(addr)); }
+    if (!addr.isEmpty() && addr != m_lastQrFor) { m_lastQrFor = addr; setQrModulesJson(qrModulesJson(addr)); }
 }
 
-// The QR is rendered here as SVG: the design system ships no QR control, and the ui_qml
-// sandbox has no network — a data: URI needs neither. nayuki's qrcodegen (MIT) is vendored.
-QString MoneroWalletUiBackend::qrSvgDataUri(const QString &text) const {
+// A module matrix rather than an image: the design system ships no QR control, and
+// Basecamp's ui_qml sandbox blocks every URL import, data: URIs included, so the view
+// draws the modules itself as rectangles. nayuki's qrcodegen (MIT) is vendored.
+QString MoneroWalletUiBackend::qrModulesJson(const QString &text) const {
     using qrcodegen::QrCode;
     const QrCode qr = QrCode::encodeText(text.toUtf8().constData(), QrCode::Ecc::MEDIUM);
-    const int n = qr.getSize(), border = 2, dim = n + border * 2;
-    QString svg = QStringLiteral("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 %1 %1' shape-rendering='crispEdges'>"
-                                 "<rect width='100%' height='100%' fill='#fff'/><path fill='#000' d='").arg(dim);
+    const int n = qr.getSize();
+    QString bits;
+    bits.reserve(n * n);
     for (int y = 0; y < n; ++y)
-        for (int x = 0; x < n; ++x)
-            if (qr.getModule(x, y)) svg += QStringLiteral("M%1 %2h1v1h-1z").arg(x + border).arg(y + border);
-    svg += QStringLiteral("'/></svg>");
-    return QStringLiteral("data:image/svg+xml;base64,") + QString::fromLatin1(svg.toUtf8().toBase64());
+        for (int x = 0; x < n; ++x) bits += qr.getModule(x, y) ? QLatin1Char('1') : QLatin1Char('0');
+    return QString::fromUtf8(QJsonDocument(QJsonObject{{"size", n}, {"bits", bits}}).toJson(QJsonDocument::Compact));
 }
 
 void MoneroWalletUiBackend::refresh() {
