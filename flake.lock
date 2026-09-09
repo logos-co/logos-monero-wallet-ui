@@ -11377,8 +11377,8 @@
         "monero_wallet_core_module": "monero_wallet_core_module"
       },
       "locked": {
-        "lastModified": 1788930582,
-        "narHash": "sha256-GfTv9rAEIikakZvJk4x8Q/Kosh6BoCXEHP3B3MXzbWI=",
+        "lastModified": 1788979211,
+        "narHash": "sha256-F2G6VlI+tiEzmUX7TXxz6a1CCwEz7HJg9BTSexR8SI0=",
         "path": "/Users/dlipicar/repos/logos-monero-wallet-backend",
         "type": "path"
       },
