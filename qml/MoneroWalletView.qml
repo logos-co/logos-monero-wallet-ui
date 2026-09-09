@@ -4,9 +4,16 @@ import QtQuick.Layouts 1.15
 import Logos.Controls
 import Logos.Theme
 
-// The Monero wallet: balances, receive, a reviewed send, activity. It holds no password — a
-// locked wallet asks the keys app through monero.wallet.unlock. Every string this view did
-// not author is PlainText (LogosText is AutoText). EMPTY JSON means "not read yet" → em-dash.
+// The Monero wallet: one app, as every Monero wallet is one app. With nothing open it shows the
+// Wallets screen (open · create · restore); with a wallet open it shows balances, send, receive
+// and activity, and keeps close / change password / show seed under Settings, where Monero GUI
+// keeps them.
+//
+// It takes the wallet password — as a SLOT argument only — and shows a seed as a SLOT return
+// value only. Never a PROP: a PROP is cached in the replica and broadcast to every connected one.
+//
+// Every string this view did not author is rendered PlainText: LogosText is AutoText, and a
+// wallet name is user input. EMPTY JSON means "not read yet" → em-dash.
 Item {
     id: root
     objectName: "moneroWalletRoot"
@@ -16,19 +23,46 @@ Item {
 
     readonly property var backend: logos.module("monero_wallet_ui")
     property bool ready: false
-    property string intentNote: ""
+
+    // A wallet another app asked us to open, answered once the open job settles.
+    property string unlockRequestId: ""
+    property string shownSecret: ""
+    property string secretKind: ""
 
     Connections {
         target: logos
         function onViewModuleReadyChanged(moduleName, isReady) {
             if (moduleName === "monero_wallet_ui") root.ready = isReady && root.backend !== null
         }
+        // We PROVIDE both Monero capabilities. Another app (a receive-only till, a companion)
+        // can ask this wallet to unlock or to bring wallet management up; we never ask anyone
+        // else, because managing wallets is a screen here rather than a trip to a second app.
+        function onIntentRequested(requestId, intent, params, requesterName) {
+            if (intent === "monero.accounts.manage") {
+                root.walletsPage = 0
+                if (root.walletOpen) root.page = 4      // Settings holds management once open
+                logos.respond(requestId, true, ({}), "")   // arriving IS the request; handoff keeps the user here
+                return
+            }
+            if (intent !== "monero.wallet.unlock") return
+            var w = params && params.wallet ? String(params.wallet) : ""
+            if (w === "") { logos.respond(requestId, false, ({}), "bad_request"); return }
+            if (root.walletOpen && root.status.wallet === w) { logos.respond(requestId, true, ({}), ""); return }
+            if (root.walletOpen) { logos.respond(requestId, false, ({}), "another wallet is already open"); return }
+            root.unlockRequestId = requestId
+            root.walletsPage = 1
+            openNameField.text = w
+        }
     }
     Component.onCompleted: root.ready = root.backend !== null && logos.isViewModuleReady("monero_wallet_ui")
 
     function j(t, fb) { try { return JSON.parse(t && t.length ? t : fb) } catch (e) { return JSON.parse(fb) } }
     readonly property var status: ready ? j(backend.statusJson, "{}") : ({})
+    readonly property var networks: ready ? j(backend.networksJson, "{}") : ({})
+    readonly property var wallets: ready ? j(backend.walletsJson, "[]") : []
     readonly property var node: ready ? j(backend.nodeHealthJson, "{}") : ({})
+    readonly property var lastJob: ready ? j(backend.lastJobJson, "{}") : ({})
+    readonly property bool busy: ready && backend.busy === true
     readonly property bool balancesRead: ready && backend.balancesJson !== ""
     readonly property var balances: balancesRead ? j(backend.balancesJson, "{}") : ({})
     readonly property bool receiveRead: ready && backend.receiveJson !== ""
@@ -40,24 +74,22 @@ Item {
     readonly property bool walletOpen: status.state === "ready" || status.state === "syncing"
     readonly property bool viewOnly: !!status.watchOnly
 
-    // Ask another app for a capability. The result is ADVISORY: wallet_status is what settles
-    // whether a wallet is open; this only explains a trip that did not happen.
-    function askFor(intent, params, whenUnavailable) {
-        root.intentNote = ""
-        logos.request(intent, params, function (res) {
-            if (res.ok || res.error === "cancelled") return
-            root.intentNote = res.error === "unavailable" ? whenUnavailable
-                : "That request did not go through (" + res.error + ")."
-        })
-    }
-    function askToUnlock() {
-        var w = status.wallet && status.wallet !== "" ? status.wallet : ""
-        if (w === "") { askFor("monero.accounts.manage", ({}), "No app on this device manages Monero wallets."); return }
-        askFor("monero.wallet.unlock", ({ wallet: w }), "Open this wallet in the Monero Keys app.")
+    // When an unlock another app asked for settles, answer the requester; the shell returns them.
+    onLastJobChanged: {
+        if (root.unlockRequestId === "" || !lastJob.kind) return
+        if (lastJob.kind !== "open") return
+        var okNow = lastJob.state === "done"
+        logos.respond(root.unlockRequestId, okNow, ({}), okNow ? "" : (lastJob.error || "open failed"))
+        root.unlockRequestId = ""
     }
 
-    property int page: 0
+    // Two page spaces: the Wallets screen while nothing is open, the wallet's tabs once it is.
+    // The harness navigates with these rather than clicking a tab: only the active StackLayout
+    // page is in the visible scene, and a text-click on a TabButton is not a reliable switch.
+    property int page: 0            // 0 Home, 1 Send, 2 Receive, 3 Activity, 4 Settings
+    property int walletsPage: 0     // 0 list, 1 open, 2 create, 3 restore seed, 4 restore keys
     function selectTab(i) { root.page = i }
+    function selectWalletsPage(i) { root.walletsPage = i }
     function parseQr(s) { try { return s ? JSON.parse(s) : null } catch (e) { return null } }
     function qrRuns(qr) {
         const runs = []
@@ -72,11 +104,12 @@ Item {
         }
         return runs
     }
+    function hideSecret() { root.shownSecret = ""; root.secretKind = "" }
 
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 16; spacing: 10
 
-        // Persistent chrome: network, node, sync, view-only.
+        // Persistent chrome: network, view-only, sync, node.
         RowLayout {
             Layout.fillWidth: true
             LogosText { text: "Monero"; font.pixelSize: 22 }
@@ -97,20 +130,146 @@ Item {
                         text: node.reachable === true ? ("node " + (node.route || "") + " " + (node.rttMs || 0) + "ms") : (node.reachable === false ? "node unreachable" : "") }
         }
 
-        LogosText { objectName: "errorLine"; visible: root.ready && backend.lastError !== ""; text: root.ready ? backend.lastError : ""; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: "#d9534f" }
-        LogosText { objectName: "intentNote"; visible: root.intentNote !== ""; text: root.intentNote; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true }
+        // One line a driver (and a user) can read the whole wallet state from.
+        LogosText {
+            objectName: "statusLine"
+            textFormat: Text.PlainText
+            text: !root.ready ? "" : (root.walletOpen
+                ? ("Open: " + status.wallet + " · " + status.state + " · " + (status.syncPercent || 0) + "%")
+                : (status.state === "opening" ? "Opening…" : (status.state === "closing" ? "Closing…" : "No wallet open")))
+        }
 
-        // Locked state: one button that asks the keys app.
+        LogosText { objectName: "errorLine"; visible: root.ready && backend.lastError !== ""; text: root.ready ? backend.lastError : ""; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: "#d9534f" }
+
+        // ================= NO WALLET OPEN: the Wallets screen =================
         ColumnLayout {
             visible: root.ready && !root.walletOpen
-            Layout.fillWidth: true
-            LogosText { objectName: "lockedText"; text: status.state === "opening" ? "Opening…" : (status.state === "closing" ? "Closing…" : "No wallet is open.") }
+            Layout.fillWidth: true; Layout.fillHeight: true
+            spacing: 10
+
             RowLayout {
-                LogosButton { objectName: "unlockButton"; text: "Open a wallet…"; enabled: status.state !== "opening"; onClicked: root.askToUnlock() }
-                LogosButton { text: "Manage wallets…"; onClicked: root.askFor("monero.accounts.manage", ({}), "No app on this device manages Monero wallets.") }
+                Layout.fillWidth: true
+                LogosText { text: "Wallets"; font.pixelSize: 16 }
+                Item { Layout.fillWidth: true }
+                LogosText { textFormat: Text.PlainText; opacity: 0.8; text: "Network: " + (networks.active || "?") }
+                ComboBox {
+                    id: netBox
+                    objectName: "networkBox"
+                    enabled: root.ready && !root.busy
+                    model: networks.networks || []
+                    currentIndex: Math.max(0, (networks.networks || []).indexOf(networks.active || ""))
+                    onActivated: backend.setActiveNetwork(currentText)
+                }
+            }
+
+            TabBar {
+                id: walletTabs
+                Layout.fillWidth: true
+                currentIndex: root.walletsPage
+                onCurrentIndexChanged: root.walletsPage = currentIndex
+                TabButton { text: "Wallets" }
+                TabButton { text: "Open" }
+                TabButton { text: "Create" }
+                TabButton { text: "Restore (seed)" }
+                TabButton { text: "Restore (keys)" }
+            }
+
+            StackLayout {
+                Layout.fillWidth: true; Layout.fillHeight: true
+                currentIndex: root.walletsPage
+
+                // 0: the wallets on this device
+                ColumnLayout {
+                    LogosText { objectName: "walletsEmpty"; visible: root.wallets.length === 0
+                                text: "No wallets on this device yet. Create one, or restore from a seed." }
+                    ListView {
+                        Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                        model: root.wallets
+                        delegate: RowLayout {
+                            width: ListView.view.width
+                            LogosText { text: modelData.name + (modelData.viewOnly ? "  (view-only)" : ""); textFormat: Text.PlainText }
+                            LogosText { text: modelData.network || ""; textFormat: Text.PlainText; opacity: 0.7 }
+                            Item { Layout.fillWidth: true }
+                            LogosButton { text: "Open"; enabled: !root.busy
+                                          onClicked: { openNameField.text = modelData.name; root.walletsPage = 1 } }
+                        }
+                    }
+                    LogosButton { text: "Refresh"; enabled: root.ready; onClicked: backend.refresh() }
+                }
+
+                // 1: open one (the password sheet)
+                ColumnLayout {
+                    spacing: 8
+                    LogosText { visible: root.unlockRequestId !== ""; wrapMode: Text.Wrap; Layout.fillWidth: true
+                                text: "Another app asked to unlock this wallet." }
+                    TextField { id: openNameField; objectName: "openNameField"; placeholderText: "Wallet name"; Layout.fillWidth: true }
+                    TextField {
+                        id: openPw; objectName: "openPasswordField"; placeholderText: "Wallet password"
+                        echoMode: TextInput.Password; Layout.fillWidth: true
+                        Component.onCompleted: passwordMaskDelay = 0
+                        onAccepted: if (openButton.enabled) openButton.clicked()
+                    }
+                    LogosButton {
+                        id: openButton
+                        objectName: "openButton"; text: root.busy ? "Opening…" : "Open"
+                        enabled: root.ready && !root.busy && openNameField.text !== ""
+                        onClicked: { backend.openWallet(openNameField.text, openPw.text); openPw.text = "" }
+                    }
+                }
+
+                // 2: create a new wallet
+                ColumnLayout {
+                    spacing: 8
+                    TextField { id: cName; objectName: "createNameField"; placeholderText: "Wallet name"; Layout.fillWidth: true }
+                    TextField { id: cLabel; placeholderText: "Label (optional)"; Layout.fillWidth: true }
+                    TextField { id: cPw; objectName: "createPasswordField"; placeholderText: "Add a strong password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                    TextField { id: cPw2; placeholderText: "Repeat password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                    LogosText { visible: cPw.text !== cPw2.text && cPw2.text !== ""; text: "Passwords do not match" }
+                    LogosButton {
+                        objectName: "createButton"; text: root.busy ? "Creating…" : "Create wallet"
+                        enabled: root.ready && !root.busy && cName.text !== "" && cPw.text !== "" && cPw.text === cPw2.text
+                        onClicked: { backend.createWallet(cName.text, cPw.text, cLabel.text); cPw.text = ""; cPw2.text = "" }
+                    }
+                    LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.8
+                                text: "The wallet opens once it is created. Write down your mnemonic seed and keep it safe — "
+                                      + "Settings › Show seed & keys, behind your password." }
+                }
+
+                // 3: restore from a mnemonic seed
+                ColumnLayout {
+                    spacing: 8
+                    TextField { id: rName; placeholderText: "Wallet name"; Layout.fillWidth: true }
+                    TextArea { id: rSeed; objectName: "seedField"; placeholderText: "25-word mnemonic seed"; Layout.fillWidth: true; Layout.preferredHeight: 90; wrapMode: TextEdit.Wrap }
+                    TextField { id: rHeight; placeholderText: "Restore height (block number; 0 scans from genesis — hours)"; Layout.fillWidth: true; validator: IntValidator { bottom: 0 } }
+                    TextField { id: rPw; placeholderText: "New wallet password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                    LogosButton {
+                        objectName: "restoreSeedButton"
+                        text: root.busy ? "Restoring…" : "Restore"
+                        enabled: root.ready && !root.busy && rName.text !== "" && rSeed.text.trim().split(/\s+/).length === 25 && rPw.text !== ""
+                        onClicked: { backend.restoreFromSeed(rName.text, rPw.text, rSeed.text.trim(), parseInt(rHeight.text || "0"), ""); rSeed.text = ""; rPw.text = "" }
+                    }
+                }
+
+                // 4: restore from keys (view-only when no spend key)
+                ColumnLayout {
+                    spacing: 8
+                    TextField { id: kName; placeholderText: "Wallet name"; Layout.fillWidth: true }
+                    TextField { id: kAddr; placeholderText: "Primary address"; Layout.fillWidth: true }
+                    TextField { id: kView; placeholderText: "Private view key"; Layout.fillWidth: true }
+                    TextField { id: kSpend; placeholderText: "Private spend key (leave empty for a view-only wallet)"; Layout.fillWidth: true }
+                    TextField { id: kHeight; placeholderText: "Restore height"; Layout.fillWidth: true; validator: IntValidator { bottom: 0 } }
+                    TextField { id: kPw; placeholderText: "New wallet password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                    LogosButton {
+                        objectName: "restoreKeysButton"
+                        text: root.busy ? "Restoring…" : (kSpend.text === "" ? "Restore view-only wallet" : "Restore wallet")
+                        enabled: root.ready && !root.busy && kName.text !== "" && kAddr.text !== "" && kView.text !== "" && kPw.text !== ""
+                        onClicked: { backend.restoreFromKeys(kName.text, kPw.text, kAddr.text, kView.text, kSpend.text, parseInt(kHeight.text || "0"), ""); kView.text = ""; kSpend.text = ""; kPw.text = "" }
+                    }
+                }
             }
         }
 
+        // ================= A WALLET IS OPEN =================
         TabBar {
             id: tabs; visible: root.walletOpen; Layout.fillWidth: true
             currentIndex: root.page; onCurrentIndexChanged: root.page = currentIndex
@@ -198,7 +357,7 @@ Item {
                 }
                 RowLayout {
                     TextField { id: subLabel; placeholderText: "Subaddress label"; Layout.fillWidth: true }
-                    LogosButton { text: "New subaddress"; onClicked: { backend.createSubaddress(subLabel.text); subLabel.text = "" } }
+                    LogosButton { text: "Create new address"; onClicked: { backend.createSubaddress(subLabel.text); subLabel.text = "" } }
                 }
                 ListView {
                     Layout.fillWidth: true; Layout.fillHeight: true; clip: true
@@ -226,15 +385,63 @@ Item {
                 LogosButton { text: "Refresh"; onClicked: backend.refreshHistory() }
             }
 
-            // Settings
+            // Settings — wallet management lives here, as it does in Monero GUI.
             ColumnLayout {
-                spacing: 6
-                LogosText { textFormat: Text.PlainText; text: "Network: " + (status.activeNetwork || "") + " — set in the Monero Keys app while no wallet is open." }
+                spacing: 8
+                LogosText { text: "Wallet"; font.pixelSize: 16 }
+                RowLayout {
+                    LogosButton { objectName: "closeButton"; text: "Close this wallet"; enabled: !root.busy; onClicked: { root.hideSecret(); backend.closeWallet() } }
+                }
+
+                LogosText { text: "Change wallet password"; opacity: 0.9 }
+                RowLayout {
+                    TextField { id: oldPw; objectName: "oldPasswordField"; placeholderText: "Current password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                    TextField { id: newPw; objectName: "newPasswordField"; placeholderText: "New password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                    LogosButton { objectName: "changePasswordButton"; text: "Change"; enabled: !root.busy && oldPw.text !== "" && newPw.text !== ""
+                                  onClicked: { backend.changePassword(oldPw.text, newPw.text); oldPw.text = ""; newPw.text = "" } }
+                }
+
+                LogosText { text: "Show seed & keys"; opacity: 0.9 }
+                RowLayout {
+                    TextField { id: revealPw; objectName: "revealPasswordField"; placeholderText: "Password to reveal"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                    LogosButton {
+                        objectName: "revealSeedButton"; text: "Show seed"; enabled: revealPw.text !== "" && !root.viewOnly
+                        onClicked: {
+                            root.secretKind = "mnemonic seed"
+                            logos.watch(backend.revealSeed(revealPw.text), function (v) { root.shownSecret = v || "" }, function () { root.shownSecret = "" })
+                            revealPw.text = ""
+                        }
+                    }
+                    LogosButton {
+                        objectName: "revealViewKeyButton"; text: "Show view key"; enabled: revealPw.text !== ""
+                        onClicked: {
+                            root.secretKind = "secret view key"
+                            logos.watch(backend.revealViewKey(revealPw.text), function (v) { root.shownSecret = v || "" }, function () { root.shownSecret = "" })
+                            revealPw.text = ""
+                        }
+                    }
+                }
+                Rectangle {
+                    visible: root.shownSecret !== ""
+                    Layout.fillWidth: true; implicitHeight: secretCol.implicitHeight + 24
+                    color: Theme.palette.surface !== undefined ? Theme.palette.surface : "#222"
+                    radius: 6
+                    ColumnLayout {
+                        id: secretCol; anchors.fill: parent; anchors.margins: 12
+                        LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true
+                                    text: "Your " + root.secretKind + ". DO NOT share it with anyone: it can "
+                                          + (root.secretKind === "mnemonic seed" ? "spend" : "see") + " your funds. Store a copy securely; it is not kept here." }
+                        TextEdit { objectName: "secretText"; text: root.shownSecret; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; Layout.fillWidth: true; color: Theme.palette.text !== undefined ? Theme.palette.text : "#eee" }
+                        LogosButton { text: "Hide"; onClicked: root.hideSecret() }
+                    }
+                }
+
+                LogosText { text: "Node"; font.pixelSize: 16 }
+                LogosText { textFormat: Text.PlainText; text: "Network: " + (status.activeNetwork || "") + " — switch it from the Wallets screen while no wallet is open." }
                 LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true
                             text: node.reachable === true ? ("Node reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") ) : "Node: " + (node.error || "unknown") }
                 LogosText { textFormat: Text.PlainText; text: "Engine: monero_c " + (status.libraryVersion || "") + " (LGPL-3.0, dynamically linked)" }
-                LogosButton { text: "Manage wallets…"; onClicked: root.askFor("monero.accounts.manage", ({}), "No app on this device manages Monero wallets.") }
-                LogosButton { objectName: "closeButton"; text: "Close wallet"; onClicked: backend.closeWallet() }
+                Item { Layout.fillHeight: true }
             }
         }
     }

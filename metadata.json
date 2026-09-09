@@ -5,20 +5,49 @@
   "type": "ui_qml",
   "interface": "universal",
   "category": "wallet",
-  "description": "Send and receive Monero on one network at a time: balances, history, a reviewed send. Holds no password and no key material.",
+  "description": "The Monero wallet: balances, a reviewed send, receive addresses with a QR, activity, and the wallet management (create, restore, open, close, change password, show seed) every Monero wallet keeps in the same app. The password crosses as a SLOT argument only, never as a property.",
   "author": "Logos Core Team",
   "main": "monero_wallet_ui_plugin",
   "icon": "src/icons/monero_wallet.png",
   "view": "qml/MoneroWalletView.qml",
-  "dependencies": ["monero_wallet_backend", "monero_wallet_core_module", "monero_node_module"],
-  "uses": [
-    { "intent": "monero.wallet.unlock", "cardinality": "single" },
-    { "intent": "monero.accounts.manage", "cardinality": "single" }
+  "dependencies": [
+    "monero_wallet_backend",
+    "monero_wallet_core_module",
+    "monero_node_module"
   ],
-  "codegen": { "rep": "src/monero_wallet_ui.rep" },
+  "provides": [
+    {
+      "intent": "monero.wallet.unlock",
+      "params": [
+        {
+          "name": "wallet",
+          "type": "string",
+          "required": true,
+          "description": "The backend registry's name for the wallet to open"
+        }
+      ]
+    },
+    {
+      "intent": "monero.accounts.manage",
+      "handoff": true
+    }
+  ],
+  "codegen": {
+    "rep": "src/monero_wallet_ui.rep"
+  },
   "nix": {
     "external_libraries": [],
-    "packages": { "build": [], "runtime": ["qt6.qtdeclarative"] },
-    "cmake": { "find_packages": [], "extra_sources": [], "extra_include_dirs": [], "extra_link_libraries": [] }
+    "packages": {
+      "build": [],
+      "runtime": [
+        "qt6.qtdeclarative"
+      ]
+    },
+    "cmake": {
+      "find_packages": [],
+      "extra_sources": [],
+      "extra_include_dirs": [],
+      "extra_link_libraries": []
+    }
   }
 }

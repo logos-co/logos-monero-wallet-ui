@@ -1,8 +1,15 @@
-// QtRO view contract for the Monero wallet.
+// QtRO view contract for the Monero wallet — one app, the way every Monero wallet is one app:
+// balances, send, receive and activity, plus the wallet management (create · restore · open ·
+// close · change password · show seed) that Monero GUI keeps under Settings.
 //
-// There is deliberately NO password, seed or key parameter anywhere below, and there never may
-// be. This UI reads balances and history and asks for a send to be built and broadcast; the
-// wallet password is taken only by monero_keys_ui. CI asserts the absence.
+// The wallet password crosses ONLY as a SLOT argument and the seed and view key ONLY as SLOT
+// return values. Never a PROP: a PROP is cached in the replica and broadcast to every connected
+// replica, so a secret in one leaks by construction. CI asserts exactly that
+// (scripts/check-rep-passwords.py — this surface is on the SECRET_SLOTS list, which forbids a
+// secret PROP and permits the SLOTs below).
+//
+// Monero's password is a once-per-session UNLOCK for one wallet file, not a per-signature
+// credential — there is no signature to approve, so there is no second surface to split it onto.
 //
 // Everything crosses as a JSON string. EMPTY means "not read yet", which the view renders as an
 // em-dash — never as a zero, and never as the previous wallet's number.
@@ -10,18 +17,29 @@ class MoneroWalletUi
 {
     PROP(QString lastError="" READONLY)
     PROP(bool dataLoading=false READONLY)
+    // A wallet lifecycle job (open/create/restore/close/change password) is in flight.
+    PROP(bool busy=false READONLY)
     // wallet_status(): { state, wallet, network, address, connected, synchronized,
     //                    walletHeight, daemonHeight, syncPercent, watchOnly, activeNetwork }
     PROP(QString statusJson="{}" READONLY)
+    // { networks: [...], active }
+    PROP(QString networksJson="{}" READONLY)
+    // [{ name, network, label, viewOnly, restoreHeight, address }]
+    PROP(QString walletsJson="[]" READONLY)
     PROP(QString nodeHealthJson="{}" READONLY)
     // { balance, unlocked, balanceXmr, unlockedXmr } in atomic-unit strings + XMR strings.
     PROP(QString balancesJson="" READONLY)
     // { address, subaddresses: [{ index, address, label }] }
     PROP(QString receiveJson="" READONLY)
-    // A data: URI (SVG) of the primary address, rendered here — the design system has no QR.
+    // { size, bits } — the QR module matrix, drawn as rectangles by the view. The design system
+    // has no QR control, and the sandbox blocks data: URIs, so an Image cannot show one.
     PROP(QString qrModulesJson="" READONLY)
     // { rows: [...] } newest first, amounts as atomic strings + XMR strings.
     PROP(QString historyJson="" READONLY)
+    // The lifecycle job in flight, "" when none. Answered by lastJobJson when it settles.
+    PROP(QString pendingJobId="" READONLY)
+    // { kind, state, error } of the last settled job — also what answers a monero.wallet.unlock.
+    PROP(QString lastJobJson="" READONLY)
     // The send in flight, "" when none, and its status: { state, preview, txids, error }.
     PROP(QString sendRequestId="" READONLY)
     PROP(QString sendStatusJson="{}" READONLY)
@@ -30,6 +48,20 @@ class MoneroWalletUi
 
     SLOT(void refresh())
     SLOT(void refreshHistory())
+
+    // ---- wallet management: the only SLOTs that may name a secret ----
+    SLOT(void setActiveNetwork(QString network))
+    SLOT(void openWallet(QString name, QString password))
+    SLOT(void createWallet(QString name, QString password, QString label))
+    SLOT(void restoreFromSeed(QString name, QString password, QString seed, int restoreHeight, QString label))
+    SLOT(void restoreFromKeys(QString name, QString password, QString address, QString viewKey, QString spendKey, int restoreHeight, QString label))
+    SLOT(void changePassword(QString oldPassword, QString newPassword))
+    // Returned once for display, then dropped by the view. Never published, never logged.
+    SLOT(QString revealSeed(QString password))
+    SLOT(QString revealViewKey(QString password))
+    SLOT(void closeWallet())
+
+    // ---- spending ----
     SLOT(void createSubaddress(QString label))
     // Build for review. sendJson: { address, amountXmr, priority?, accountIndex? }
     SLOT(void prepareSend(QString sendJson))
@@ -38,5 +70,4 @@ class MoneroWalletUi
     SLOT(void cancelSend())
     SLOT(bool addressValid(QString address))
     SLOT(QString formatXmr(QString atomic))
-    SLOT(void closeWallet())
 }

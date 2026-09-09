@@ -15,7 +15,8 @@ QString compact(const QJsonValue &v) {
     return {};
 }
 QString stripOk(const QString &reply) { QJsonObject o = parse(reply); o.remove("ok"); return compact(o); }
-constexpr int kPollMs = 3000;
+constexpr int kReadPollMs = 3000;
+constexpr int kJobPollMs = 750;
 constexpr int kSendPollMs = 700;
 }
 
@@ -33,15 +34,17 @@ bool MoneroWalletUiBackend::ok(const QString &reply, const QString &context) {
 }
 
 void MoneroWalletUiBackend::onContextReady() {
-    QObject::connect(&m_poll, &QTimer::timeout, [this] { loadStatus(); loadBalances(); });
+    QObject::connect(&m_readPoll, &QTimer::timeout, [this] { loadStatus(); loadBalances(); });
+    QObject::connect(&m_jobPoll, &QTimer::timeout, [this] { pollJob(); });
     QObject::connect(&m_sendPoll, &QTimer::timeout, [this] { pollSend(); });
-    // Subscribe first, then reconcile; never call out synchronously from an event callback.
+    // Subscribe first, then reconcile; never call out synchronously from an event callback
+    // (it runs on the IPC read stack and would block the thread delivering its own reply).
     auto &b = modules().monero_wallet_backend;
     b.onWallet_state_changed([this](QString) { QTimer::singleShot(0, [this] { refresh(); }); });
     b.onSync_progress([this](QString) { QTimer::singleShot(0, [this] { loadStatus(); }); });
     b.onBalance_changed([this](QString) { QTimer::singleShot(0, [this] { loadBalances(); }); });
     b.onSend_status_changed([this](QString, QString) { QTimer::singleShot(0, [this] { pollSend(); }); });
-    m_poll.start(kPollMs);
+    m_readPoll.start(kReadPollMs);
     refresh();
 }
 
@@ -51,6 +54,15 @@ void MoneroWalletUiBackend::loadStatus() {
     if (ok(s, "status")) setStatusJson(stripOk(s));
     const QString h = b.node_health();
     if (!h.isEmpty()) setNodeHealthJson(stripOk(h));
+}
+
+// The wallet registry and the network list: what the Wallets screen renders while nothing is open.
+void MoneroWalletUiBackend::loadRegistry() {
+    auto &b = modules().monero_wallet_backend;
+    const QString n = b.list_networks();
+    if (ok(n, "networks")) { QJsonObject o = parse(n); o.remove("ok"); setNetworksJson(compact(o)); }
+    const QString w = b.list_wallets();
+    setWalletsJson(ok(w, "wallets") ? compact(parse(w).value("wallets")) : QStringLiteral("[]"));
 }
 
 void MoneroWalletUiBackend::loadBalances() {
@@ -90,6 +102,7 @@ void MoneroWalletUiBackend::refresh() {
     setLastError({});
     setDataLoading(true);
     loadStatus();
+    loadRegistry();
     loadBalances();
     loadReceive();
     refreshHistory();
@@ -103,6 +116,87 @@ void MoneroWalletUiBackend::refreshHistory() {
     const QString r = modules().monero_wallet_backend.history();
     setHistoryJson(ok(r, "history") ? stripOk(r) : QString());
 }
+
+// ---- wallet management -------------------------------------------------------------------
+
+void MoneroWalletUiBackend::setActiveNetwork(QString network) {
+    setLastError({});
+    if (ok(modules().monero_wallet_backend.set_active_network(network), "network")) refresh();
+}
+
+// A lifecycle call answers a job id; the job settles later. Track exactly one at a time.
+void MoneroWalletUiBackend::track(const QString &reply, const QString &kind) {
+    if (!ok(reply, kind)) return;
+    const QString id = parse(reply).value("jobId").toString();
+    if (id.isEmpty()) { say(kind + ": no job id returned"); return; }
+    m_pendingKind = kind;
+    setPendingJobId(id);
+    setBusy(true);
+    m_jobPoll.start(kJobPollMs);
+}
+
+void MoneroWalletUiBackend::pollJob() {
+    const QString id = pendingJobId();
+    if (id.isEmpty()) { m_jobPoll.stop(); setBusy(false); return; }
+    const QJsonObject st = parse(modules().monero_wallet_backend.job_status(id));
+    const QString state = st.value("state").toString();
+    if (state != "done" && state != "failed") return;
+    m_jobPoll.stop();
+    QJsonObject last{{"kind", m_pendingKind}, {"state", state}, {"error", st.value("error").toString()}};
+    setLastJobJson(compact(last));
+    if (state == "failed") say(m_pendingKind + ": " + st.value("error").toString());
+    setPendingJobId({});
+    setBusy(false);
+    refresh();
+}
+
+void MoneroWalletUiBackend::openWallet(QString name, QString password) {
+    setLastError({});
+    track(modules().monero_wallet_backend.open_wallet(name, password), "open");
+}
+
+void MoneroWalletUiBackend::createWallet(QString name, QString password, QString label) {
+    setLastError({});
+    track(modules().monero_wallet_backend.create_wallet(name, password, label), "create");
+}
+
+void MoneroWalletUiBackend::restoreFromSeed(QString name, QString password, QString seed, int restoreHeight, QString label) {
+    setLastError({});
+    QJsonObject p{{"name", name}, {"password", password}, {"seed", seed},
+                  {"restoreHeight", restoreHeight < 0 ? 0 : restoreHeight}, {"label", label}};
+    track(modules().monero_wallet_backend.restore_from_seed(compact(p)), "restore");
+}
+
+void MoneroWalletUiBackend::restoreFromKeys(QString name, QString password, QString address, QString viewKey,
+                                            QString spendKey, int restoreHeight, QString label) {
+    setLastError({});
+    QJsonObject p{{"name", name}, {"password", password}, {"address", address}, {"viewKey", viewKey},
+                  {"spendKey", spendKey}, {"restoreHeight", restoreHeight < 0 ? 0 : restoreHeight}, {"label", label}};
+    track(modules().monero_wallet_backend.restore_from_keys(compact(p)), "restore");
+}
+
+void MoneroWalletUiBackend::changePassword(QString oldPassword, QString newPassword) {
+    setLastError({});
+    track(modules().monero_wallet_backend.change_password(oldPassword, newPassword), "change password");
+}
+
+// Returned, not published: the QML shows it once and drops it.
+QString MoneroWalletUiBackend::revealSeed(QString password) {
+    const QString r = modules().monero_wallet_backend.reveal_seed(password);
+    return ok(r, "reveal seed") ? parse(r).value("seed").toString() : QString();
+}
+
+QString MoneroWalletUiBackend::revealViewKey(QString password) {
+    const QString r = modules().monero_wallet_backend.reveal_view_key(password);
+    return ok(r, "reveal view key") ? parse(r).value("viewKey").toString() : QString();
+}
+
+void MoneroWalletUiBackend::closeWallet() {
+    setLastError({});
+    track(modules().monero_wallet_backend.close_wallet(), "close");
+}
+
+// ---- spending ----------------------------------------------------------------------------
 
 void MoneroWalletUiBackend::createSubaddress(QString label) {
     setLastError({});
@@ -159,9 +253,4 @@ bool MoneroWalletUiBackend::addressValid(QString address) {
 
 QString MoneroWalletUiBackend::formatXmr(QString atomic) {
     return modules().monero_wallet_backend.format_xmr(atomic);
-}
-
-void MoneroWalletUiBackend::closeWallet() {
-    setLastError({});
-    ok(modules().monero_wallet_backend.close_wallet(), "close");
 }

@@ -8,21 +8,39 @@
 #include "rep_monero_wallet_ui_source.h"
 #include "logos_ui_plugin_context.h"
 
-// The wallet backend. Reads through the generated typed client, republishes as PROPs, and
-// drives the send state machine. Never sees a password; the keys app owns that.
+// The Monero wallet backend. Every backend-module call is made here over the generated typed
+// client; the QML half renders and collects the password.
+//
+// Two clocks and one lifecycle: m_readPoll refreshes steady state as a backstop behind the
+// backend's events, m_jobPoll follows a wallet lifecycle job (open/create/restore/close/change
+// password) to settlement, and m_sendPoll follows a send. Secrets are SLOT arguments and SLOT
+// return values — never published as properties, never logged.
 class MoneroWalletUiBackend : public MoneroWalletUiSimpleSource,
                               public LogosUiPluginContext
 {
 public:
     void refresh() override;
     void refreshHistory() override;
+
+    // Wallet management.
+    void setActiveNetwork(QString network) override;
+    void openWallet(QString name, QString password) override;
+    void createWallet(QString name, QString password, QString label) override;
+    void restoreFromSeed(QString name, QString password, QString seed, int restoreHeight, QString label) override;
+    void restoreFromKeys(QString name, QString password, QString address, QString viewKey, QString spendKey,
+                         int restoreHeight, QString label) override;
+    void changePassword(QString oldPassword, QString newPassword) override;
+    QString revealSeed(QString password) override;
+    QString revealViewKey(QString password) override;
+    void closeWallet() override;
+
+    // Spending.
     void createSubaddress(QString label) override;
     void prepareSend(QString sendJson) override;
     void confirmSend() override;
     void cancelSend() override;
     bool addressValid(QString address) override;
     QString formatXmr(QString atomic) override;
-    void closeWallet() override;
 
 protected:
     void onContextReady() override;
@@ -31,12 +49,17 @@ private:
     void say(const QString &line);
     bool ok(const QString &reply, const QString &context);
     void loadStatus();
+    void loadRegistry();
     void loadBalances();
     void loadReceive();
+    void track(const QString &reply, const QString &kind);
+    void pollJob();
     void pollSend();
     QString qrModulesJson(const QString &text) const;
 
-    QTimer m_poll;
+    QTimer m_readPoll;
+    QTimer m_jobPoll;
     QTimer m_sendPoll;
+    QString m_pendingKind;
     QString m_lastQrFor;
 };

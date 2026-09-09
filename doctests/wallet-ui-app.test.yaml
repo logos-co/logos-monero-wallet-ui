@@ -1,12 +1,14 @@
-name: monero_wallet_ui — the spending surface renders with no wallet open
+name: monero_wallet_ui — create a stagenet wallet and receive into it, in one app
 project_name: logos-monero-wallet-ui
 
 intro: |
-  Builds the wallet app and its module tree and launches it headless. With no wallet open it must
-  render the locked state and offer to ask the keys app — and must never show a password field.
+  One app covers the whole flow, so one headless run can too: the wallet list renders, a stagenet
+  wallet is created through the form, the wallet opens and starts syncing, and the Receive tab
+  shows its address and a QR. The password is typed into the only surface that takes one — and its
+  `.rep` still may not name a secret in a PROP, which is what CI asserts.
 
 sections:
-  - title: "Build"
+  - title: "Build the app, the host and the module tree"
     steps:
       - run: |
           nix build 'github:logos-co/logos-standalone-app' --no-write-lock-file -o result-app
@@ -17,25 +19,67 @@ sections:
           cp -r result-capability/modules/* tree/modules/
           cp -r result-wallet/modules/*     tree/modules/
           cp -r result-wallet/plugins/*     tree/plugins/
-        expect_contains: []
-      - title: "The .rep declares no secret (the CI gate's rule, applied here too)"
+          ls tree/modules tree/plugins
+        expect_contains: ["monero_wallet_ui", "monero_wallet_backend"]
+      - title: "The .rep may take a secret in a SLOT, never in a PROP (the CI gate's rule, applied here too)"
         run: |
-          ! grep -nE '^\s*(PROP|SLOT)\s*\(.*\b(password|passphrase|mnemonic|seed|privkey|private_?key)\b' src/monero_wallet_ui.rep && echo REP_CLEAN
-        expect_contains: ["REP_CLEAN"]
+          ! grep -nE '^\s*PROP\s*\(.*\b(password|passphrase|mnemonic|seed|privkey|private_?key)\b' src/monero_wallet_ui.rep && echo NO_SECRET_PROP
+          grep -cE '^\s*SLOT\s*\(.*\bpassword\b' src/monero_wallet_ui.rep
+        expect_contains: ["NO_SECRET_PROP"]
 
-  - title: "Drive the wallet app"
+  - title: "Drive the wallet"
     steps:
-      - ui_test:
+      - title: "Create a wallet, watch it open and sync, then read the receive address"
+        ui_test:
           launch: "env QT_FORCE_STDERR_LOGGING=1 QML_INSPECTOR_PORT=3768 ./result-app/bin/logos-standalone-app -p ./tree/plugins/monero_wallet_ui -m ./tree/modules --load monero_wallet_backend -u ./userdir"
           qt_mcp: "result-mcp"
           launch_timeout: 600
           tests:
-            - name: "Locked state renders with the unlock hop"
+            - name: "With nothing open the app shows the Wallets screen"
               action: wait_for
-              texts: ["No wallet is open.", "Open a wallet…"]
+              texts: ["No wallet open", "No wallets on this device yet. Create one, or restore from a seed."]
               timeout: 30000
-              screenshot: "wallet-ui-locked.png"
-            - name: "The network chip shows the active network"
+              screenshot: "wallet-ui-wallets.png"
+            - name: "Go to Create (navigate via the root: only the active StackLayout page is in the scene)"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "selectWalletsPage"
+              args: [2]
+            - name: "Name the wallet"
+              action: set_text
+              find_by: "objectName"
+              find_value: "createNameField"
+              value: "doctest"
+            - name: "Type the password"
+              action: set_text
+              find_by: "objectName"
+              find_value: "createPasswordField"
+              value: "doctest-pw"
+            - name: "Repeat the password"
+              action: set_text
+              find_by: "placeholderText"
+              find_value: "Repeat password"
+              value: "doctest-pw"
+            - name: "Create"
+              action: click
+              target: "Create wallet"
+            - name: "The wallet opens and starts syncing — same app, no hop"
               action: wait_for
-              texts: ["STAGENET"]
-              timeout: 10000
+              texts: ["Open: doctest · syncing"]
+              timeout: 60000
+              screenshot: "wallet-ui-open.png"
+            - name: "Go to Receive"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "selectTab"
+              args: [2]
+            - name: "The receive address and its QR render"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "qrBox"
+              property: "visible"
+              expected: true
+              timeout: 30000
+              screenshot: "wallet-ui-receive.png"
