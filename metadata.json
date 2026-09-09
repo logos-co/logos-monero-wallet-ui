@@ -1,0 +1,24 @@
+{
+  "name": "monero_wallet_ui",
+  "display_name": "Monero Wallet",
+  "version": "0.1.0",
+  "type": "ui_qml",
+  "interface": "universal",
+  "category": "wallet",
+  "description": "Send and receive Monero on one network at a time: balances, history, a reviewed send. Holds no password and no key material.",
+  "author": "Logos Core Team",
+  "main": "monero_wallet_ui_plugin",
+  "icon": "src/icons/monero_wallet.png",
+  "view": "qml/MoneroWalletView.qml",
+  "dependencies": ["monero_wallet_backend", "monero_wallet_core_module", "monero_node_module"],
+  "uses": [
+    { "intent": "monero.wallet.unlock", "cardinality": "single" },
+    { "intent": "monero.accounts.manage", "cardinality": "single" }
+  ],
+  "codegen": { "rep": "src/monero_wallet_ui.rep" },
+  "nix": {
+    "external_libraries": [],
+    "packages": { "build": [], "runtime": ["qt6.qtdeclarative"] },
+    "cmake": { "find_packages": [], "extra_sources": [], "extra_include_dirs": [], "extra_link_libraries": [] }
+  }
+}

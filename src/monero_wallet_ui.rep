@@ -1,0 +1,42 @@
+// QtRO view contract for the Monero wallet.
+//
+// There is deliberately NO password, seed or key parameter anywhere below, and there never may
+// be. This UI reads balances and history and asks for a send to be built and broadcast; the
+// wallet password is taken only by monero_keys_ui. CI asserts the absence.
+//
+// Everything crosses as a JSON string. EMPTY means "not read yet", which the view renders as an
+// em-dash — never as a zero, and never as the previous wallet's number.
+class MoneroWalletUi
+{
+    PROP(QString lastError="" READONLY)
+    PROP(bool dataLoading=false READONLY)
+    // wallet_status(): { state, wallet, network, address, connected, synchronized,
+    //                    walletHeight, daemonHeight, syncPercent, watchOnly, activeNetwork }
+    PROP(QString statusJson="{}" READONLY)
+    PROP(QString nodeHealthJson="{}" READONLY)
+    // { balance, unlocked, balanceXmr, unlockedXmr } in atomic-unit strings + XMR strings.
+    PROP(QString balancesJson="" READONLY)
+    // { address, subaddresses: [{ index, address, label }] }
+    PROP(QString receiveJson="" READONLY)
+    // A data: URI (SVG) of the primary address, rendered here — the design system has no QR.
+    PROP(QString qrDataUri="" READONLY)
+    // { rows: [...] } newest first, amounts as atomic strings + XMR strings.
+    PROP(QString historyJson="" READONLY)
+    // The send in flight, "" when none, and its status: { state, preview, txids, error }.
+    PROP(QString sendRequestId="" READONLY)
+    PROP(QString sendStatusJson="{}" READONLY)
+    // Send-path errors only; the Send dialog is modal and lastError renders behind it.
+    PROP(QString sendError="" READONLY)
+
+    SLOT(void refresh())
+    SLOT(void refreshHistory())
+    SLOT(void createSubaddress(QString label))
+    // Build for review. sendJson: { address, amountXmr, priority?, accountIndex? }
+    SLOT(void prepareSend(QString sendJson))
+    // Broadcast the previewed transaction. This is BROADCAST approval; the engine signed at build.
+    SLOT(void confirmSend())
+    SLOT(void cancelSend())
+    SLOT(bool addressValid(QString address))
+    SLOT(QString formatXmr(QString atomic))
+    SLOT(void closeWallet())
+}
