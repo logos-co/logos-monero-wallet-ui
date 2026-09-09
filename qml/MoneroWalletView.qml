@@ -369,9 +369,28 @@ Item {
                         LogosText { objectName: "previewFee"; visible: !!send.preview; textFormat: Text.PlainText; text: "Fee: " + (send.preview ? send.preview.feeXmr : "") + " XMR" }
                         LogosText { objectName: "previewTotal"; visible: !!send.preview; textFormat: Text.PlainText; text: "Total: " + (send.preview ? send.preview.totalXmr : "") + " XMR" }
                         LogosText { visible: send.state === "sent"; textFormat: Text.PlainText; text: "Broadcast. txid: " + (send.txids || ""); wrapMode: Text.WrapAnywhere; Layout.fillWidth: true }
+                        // The engine died mid-broadcast: neither "sent" nor "failed" is true.
+                        Rectangle {
+                            objectName: "sendUnknownBanner"
+                            visible: send.state === "unknown"
+                            Layout.fillWidth: true; implicitHeight: unkCol.implicitHeight + 16; radius: 4
+                            color: "#5a3d12"
+                            ColumnLayout {
+                                id: unkCol; anchors.fill: parent; anchors.margins: 8; spacing: 2
+                                LogosText { text: "This transaction's outcome is unknown"; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                                LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.9
+                                            text: send.error || "" }
+                                LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.9
+                                            text: "Check Activity after the wallet re-syncs before sending again." }
+                            }
+                        }
                         RowLayout {
                             LogosButton { objectName: "confirmSendButton"; text: "Confirm and broadcast"; visible: send.state === "previewed"; onClicked: backend.confirmSend() }
-                            LogosButton { text: send.state === "sent" || send.state === "failed" ? "Done" : "Cancel"; visible: send.state !== "committing"; onClicked: { backend.cancelSend(); if (send.state === "sent") { sendAddr.text = ""; sendAmt.text = "" } } }
+                            LogosButton {
+                                text: (send.state === "sent" || send.state === "failed" || send.state === "unknown") ? "Done" : "Cancel"
+                                visible: send.state !== "committing"
+                                onClicked: { backend.cancelSend(); if (send.state === "sent" || send.state === "unknown") { sendAddr.text = ""; sendAmt.text = "" } }
+                            }
                         }
                     }
                 }
