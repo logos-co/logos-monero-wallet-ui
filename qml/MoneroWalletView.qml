@@ -57,6 +57,7 @@ Item {
     }
 
     property int page: 0
+    function selectTab(i) { root.page = i }
 
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 16; spacing: 10

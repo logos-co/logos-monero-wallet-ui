@@ -12,7 +12,7 @@ sections:
           nix build 'github:logos-co/logos-standalone-app' --no-write-lock-file -o result-app
           nix build 'github:logos-co/logos-qt-mcp' --no-write-lock-file -o result-mcp
           nix build 'github:logos-co/logos-capability-module#install' --no-write-lock-file -o result-capability
-          nix build '.#install' -o result-wallet
+          nix build 'path:..#install' -o result-wallet
           mkdir -p tree/modules tree/plugins
           cp -r result-capability/modules/* tree/modules/
           cp -r result-wallet/modules/*     tree/modules/
