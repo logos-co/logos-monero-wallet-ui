@@ -24,8 +24,11 @@ Item {
     readonly property var backend: logos.module("monero_wallet_ui")
     property bool ready: false
 
-    // A wallet another app asked us to open, answered once the open job settles.
+    // A wallet another app asked us to open, answered once the open job settles. The NAME is
+    // kept too: the user can reach the wallet list and open a different wallet in one click, and
+    // answering ok for that one would tell the requester it has wallet A when it has wallet B.
     property string unlockRequestId: ""
+    property string unlockWallet: ""
     property string shownSecret: ""
     property string secretKind: ""
 
@@ -50,6 +53,7 @@ Item {
             if (root.walletOpen && root.status.wallet === w) { logos.respond(requestId, true, ({}), ""); return }
             if (root.walletOpen) { logos.respond(requestId, false, ({}), "another wallet is already open"); return }
             root.unlockRequestId = requestId
+            root.unlockWallet = w
             root.walletsPage = 1
             openNameField.text = w
         }
@@ -78,9 +82,13 @@ Item {
     onLastJobChanged: {
         if (root.unlockRequestId === "" || !lastJob.kind) return
         if (lastJob.kind !== "open") return
-        var okNow = lastJob.state === "done"
-        logos.respond(root.unlockRequestId, okNow, ({}), okNow ? "" : (lastJob.error || "open failed"))
+        var opened = lastJob.state === "done"
+        // Identity, not just success: a different wallet may have been opened from the list.
+        var mine = opened && root.status.wallet === root.unlockWallet
+        var err = !opened ? (lastJob.error || "open failed") : (mine ? "" : "a different wallet was opened")
+        logos.respond(root.unlockRequestId, mine, ({}), err)
         root.unlockRequestId = ""
+        root.unlockWallet = ""
     }
 
     // Two page spaces: the Wallets screen while nothing is open, the wallet's tabs once it is.
@@ -105,6 +113,11 @@ Item {
         return runs
     }
     function hideSecret() { root.shownSecret = ""; root.secretKind = "" }
+    // Drop a revealed secret whenever it stops being this wallet's, on this page — not only
+    // when the user happens to press Hide or the one Close button. Any holder of either role
+    // can close the session out from under this view.
+    onWalletOpenChanged: root.hideSecret()
+    onPageChanged: if (root.page !== 4) root.hideSecret()
 
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 16; spacing: 10
@@ -194,7 +207,7 @@ Item {
                                           onClicked: { openNameField.text = modelData.name; root.walletsPage = 1 } }
                         }
                     }
-                    LogosButton { text: "Refresh"; enabled: root.ready; onClicked: backend.refresh() }
+                    LogosButton { text: "Refresh"; enabled: root.ready; onClicked: backend.clearAndRefresh() }
                 }
 
                 // 1: open one (the password sheet)
@@ -291,7 +304,7 @@ Item {
                             text: root.balancesRead ? ("Unlocked: " + balances.unlockedXmr + " XMR") : "Unlocked: —" }
                 LogosText { visible: root.balancesRead && balances.balance !== balances.unlocked; opacity: 0.7
                             text: "Incoming funds unlock after 10 confirmations (~20 min)." }
-                LogosButton { text: "Refresh"; onClicked: backend.refresh() }
+                LogosButton { text: "Refresh"; onClicked: backend.clearAndRefresh() }
             }
 
             // Send

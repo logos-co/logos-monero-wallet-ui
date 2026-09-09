@@ -21,6 +21,7 @@ class MoneroWalletUiBackend : public MoneroWalletUiSimpleSource,
 public:
     void refresh() override;
     void refreshHistory() override;
+    void clearAndRefresh() override;
 
     // Wallet management.
     void setActiveNetwork(QString network) override;

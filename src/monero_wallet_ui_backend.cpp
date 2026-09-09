@@ -33,6 +33,12 @@ bool MoneroWalletUiBackend::ok(const QString &reply, const QString &context) {
     return false;
 }
 
+// Clear before a user-initiated action, so its outcome is what the error line shows.
+void MoneroWalletUiBackend::clearAndRefresh() {
+    setLastError({});
+    refresh();
+}
+
 void MoneroWalletUiBackend::onContextReady() {
     QObject::connect(&m_readPoll, &QTimer::timeout, [this] { loadStatus(); loadBalances(); });
     QObject::connect(&m_jobPoll, &QTimer::timeout, [this] { pollJob(); });
@@ -98,8 +104,10 @@ QString MoneroWalletUiBackend::qrModulesJson(const QString &text) const {
     return QString::fromUtf8(QJsonDocument(QJsonObject{{"size", n}, {"bits", bits}}).toJson(QJsonDocument::Compact));
 }
 
+// NB: does NOT clear lastError. It is called from pollJob() right after a job failure is
+// recorded, and from event callbacks — clearing here erased the one message the user needed.
+// The explicit user-initiated entry points clear it before they act.
 void MoneroWalletUiBackend::refresh() {
-    setLastError({});
     setDataLoading(true);
     loadStatus();
     loadRegistry();
@@ -182,11 +190,13 @@ void MoneroWalletUiBackend::changePassword(QString oldPassword, QString newPassw
 
 // Returned, not published: the QML shows it once and drops it.
 QString MoneroWalletUiBackend::revealSeed(QString password) {
+    setLastError({});
     const QString r = modules().monero_wallet_backend.reveal_seed(password);
     return ok(r, "reveal seed") ? parse(r).value("seed").toString() : QString();
 }
 
 QString MoneroWalletUiBackend::revealViewKey(QString password) {
+    setLastError({});
     const QString r = modules().monero_wallet_backend.reveal_view_key(password);
     return ok(r, "reveal view key") ? parse(r).value("viewKey").toString() : QString();
 }

@@ -4,9 +4,11 @@
 //
 // The wallet password crosses ONLY as a SLOT argument and the seed and view key ONLY as SLOT
 // return values. Never a PROP: a PROP is cached in the replica and broadcast to every connected
-// replica, so a secret in one leaks by construction. CI asserts exactly that
-// (scripts/check-rep-passwords.py — this surface is on the SECRET_SLOTS list, which forbids a
-// secret PROP and permits the SLOTs below).
+// replica, so a secret in one leaks by construction. `scripts/check-rep-passwords.py` in
+// logos-workspace owns this rule and lists this surface under SECRET_SLOTS (a secret PROP is
+// refused, the SLOTs below are permitted) — but it can only run once this repo is registered as
+// a workspace submodule, and until then it reports this repo as SKIPPED. Do not read the rule
+// as enforced today.
 //
 // Monero's password is a once-per-session UNLOCK for one wallet file, not a per-signature
 // credential — there is no signature to approve, so there is no second surface to split it onto.
@@ -46,8 +48,11 @@ class MoneroWalletUi
     // Send-path errors only; the Send dialog is modal and lastError renders behind it.
     PROP(QString sendError="" READONLY)
 
+    // refresh() does NOT clear lastError (it runs after a failed job, and from events).
+    // clearAndRefresh() is the user-initiated one: it clears first.
     SLOT(void refresh())
     SLOT(void refreshHistory())
+    SLOT(void clearAndRefresh())
 
     // ---- wallet management: the only SLOTs that may name a secret ----
     SLOT(void setActiveNetwork(QString network))

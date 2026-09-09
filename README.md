@@ -21,10 +21,16 @@ and `monero_wallet_core_module` — not the number of UIs. That is untouched.
 ## Secrets
 
 The wallet password crosses as a **SLOT argument** only; the seed and view key are **SLOT return
-values** only, shown once and dropped. Never a `PROP`: a PROP is cached in the replica and broadcast
-to every connected replica, so a secret in one leaks by construction. CI asserts exactly that —
-this repo is on `scripts/check-rep-passwords.py`'s `SECRET_SLOTS` list, which permits those SLOTs
-and fails on any secret PROP. Every password field sets `passwordMaskDelay = 0`.
+values** only, shown once and dropped, and cleared whenever the wallet closes or the user leaves
+Settings. Never a `PROP`: a PROP is cached in the replica and broadcast to every connected replica,
+so a secret in one leaks by construction.
+
+`scripts/check-rep-passwords.py` in `logos-workspace` owns that rule and lists this repo under
+`SECRET_SLOTS` (secret SLOTs permitted, any secret PROP refused). **It does not run against this
+repo yet**: the gate reports it as `SKIPPED` until the repo is registered as a workspace submodule,
+so treat the rule as agreed and locally tripwired, not as enforced. The doctest carries a
+deliberately wider substring check in the meantime. Every password field sets
+`passwordMaskDelay = 0`.
 
 The review step governs **broadcast**: the engine signed when it built the preview. Nothing here is
 offline signing.

@@ -21,10 +21,14 @@ sections:
           cp -r result-wallet/plugins/*     tree/plugins/
           ls tree/modules tree/plugins
         expect_contains: ["monero_wallet_ui", "monero_wallet_backend"]
-      - title: "The .rep may take a secret in a SLOT, never in a PROP (the CI gate's rule, applied here too)"
+      - title: "No secret may be declared as a PROP (a PROP is cached and broadcast to every replica)"
+        # scripts/check-rep-passwords.py in logos-workspace OWNS this rule; this is a local
+        # tripwire, not a second copy of it. Deliberately a case-insensitive SUBSTRING match with
+        # no word boundaries, which is strictly WIDER than any \\b-anchored spelling — so it cannot
+        # silently drift weaker than the real gate the way a copied regex already did once
+        # (\\bpassword\\b never matched newPassword).
         run: |
-          ! grep -nE '^\s*PROP\s*\(.*\b(password|passphrase|mnemonic|seed|privkey|private_?key)\b' src/monero_wallet_ui.rep && echo NO_SECRET_PROP
-          grep -cE '^\s*SLOT\s*\(.*\bpassword\b' src/monero_wallet_ui.rep
+          ! grep -niE '^[[:space:]]*PROP[[:space:]]*\(.*(password|passphrase|mnemonic|seed|privkey|private_key|spendkey|viewkey|secretkey)' src/monero_wallet_ui.rep && echo NO_SECRET_PROP
         expect_contains: ["NO_SECRET_PROP"]
 
   - title: "Drive the wallet"
