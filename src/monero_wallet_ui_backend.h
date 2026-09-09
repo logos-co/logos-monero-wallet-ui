@@ -34,9 +34,15 @@ public:
     QString revealSeed(QString password) override;
     QString revealViewKey(QString password) override;
     void closeWallet() override;
+    void saveNodeConfig(QString configJson) override;
+
+    // Receiving.
+    void createSubaddress(QString label) override;
+    void selectSubaddress(int index) override;
+    void setReceiveAmount(QString amountXmr) override;
+    void setSubaddressLabel(int index, QString label) override;
 
     // Spending.
-    void createSubaddress(QString label) override;
     void prepareSend(QString sendJson) override;
     void confirmSend() override;
     void cancelSend() override;
@@ -51,6 +57,8 @@ private:
     bool ok(const QString &reply, const QString &context);
     void loadStatus();
     void loadRegistry();
+    void loadNodeConfig();
+    void publishReceiveSelection();
     void loadBalances();
     void loadReceive();
     void track(const QString &reply, const QString &kind);
@@ -63,4 +71,5 @@ private:
     QTimer m_sendPoll;
     QString m_pendingKind;
     QString m_lastQrFor;
+    QString m_receiveAmount;
 };

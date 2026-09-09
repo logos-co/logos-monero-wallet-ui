@@ -11377,8 +11377,8 @@
         "monero_wallet_core_module": "monero_wallet_core_module"
       },
       "locked": {
-        "lastModified": 1788979211,
-        "narHash": "sha256-F2G6VlI+tiEzmUX7TXxz6a1CCwEz7HJg9BTSexR8SI0=",
+        "lastModified": 1788989366,
+        "narHash": "sha256-CRRwi4IkkZnt/IGrWRWcSXh+SrHPyzFmLUVpkuoPcl4=",
         "path": "/Users/dlipicar/repos/logos-monero-wallet-backend",
         "type": "path"
       },
@@ -11400,8 +11400,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1788930544,
-        "narHash": "sha256-MynPaPxD+7oDhPZVsd31lHPCF5eijnzRfkjVLXjpF5A=",
+        "lastModified": 1788988996,
+        "narHash": "sha256-DIKlhpRpVI8NKZANRIzDCNoeVJEfCCn30fFfX9ukhCM=",
         "path": "/Users/dlipicar/repos/logos-monero-wallet-core-module",
         "type": "path"
       },

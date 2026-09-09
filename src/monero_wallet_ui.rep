@@ -35,7 +35,15 @@ class MoneroWalletUi
     PROP(QString receiveJson="" READONLY)
     // { size, bits } — the QR module matrix, drawn as rectangles by the view. The design system
     // has no QR control, and the sandbox blocks data: URIs, so an Image cannot show one.
+    // It encodes receiveUri, so it follows the selected subaddress and any requested amount.
     PROP(QString qrModulesJson="" READONLY)
+    // Which subaddress the Receive tab is showing (0 = the account's primary address).
+    PROP(int selectedSubaddress=0 READONLY)
+    // The BIP-21-style payment URI for the selection: monero:<address>[?tx_amount=...].
+    PROP(QString receiveUri="" READONLY)
+    // The active network's node, with the RPC password redacted to hasPassword:
+    // { url, username, hasPassword, proxy, proxyRequired, trusted, source, network }
+    PROP(QString nodeConfigJson="{}" READONLY)
     // { rows: [...] } newest first, amounts as atomic strings + XMR strings.
     PROP(QString historyJson="" READONLY)
     // The lifecycle job in flight, "" when none. Answered by lastJobJson when it settles.
@@ -65,9 +73,20 @@ class MoneroWalletUi
     SLOT(QString revealSeed(QString password))
     SLOT(QString revealViewKey(QString password))
     SLOT(void closeWallet())
+    // Point the active network at a different daemon. CUSTODIAN, and refused while a wallet is
+    // open: wallet2 binds its daemon at init. Omit "password" to keep the stored one.
+    SLOT(void saveNodeConfig(QString configJson))
+
+    // ---- receiving ----
+    SLOT(void createSubaddress(QString label))
+    // Show this subaddress: moves the QR, the URI and the copy target.
+    SLOT(void selectSubaddress(int index))
+    // Fold an amount into the payment URI (empty clears it). Not a transfer — a request.
+    SLOT(void setReceiveAmount(QString amountXmr))
+    // Rename a subaddress, or clear the label with an empty string.
+    SLOT(void setSubaddressLabel(int index, QString label))
 
     // ---- spending ----
-    SLOT(void createSubaddress(QString label))
     // Build for review. sendJson: { address, amountXmr, priority?, accountIndex? }
     SLOT(void prepareSend(QString sendJson))
     // Broadcast the previewed transaction. This is BROADCAST approval; the engine signed at build.

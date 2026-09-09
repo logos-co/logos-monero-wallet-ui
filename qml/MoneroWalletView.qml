@@ -31,6 +31,13 @@ Item {
     property string unlockWallet: ""
     property string shownSecret: ""
     property string secretKind: ""
+    // Receive-tab selection and the inline label editor.
+    property int labelIndex: -1
+    property string labelDraft: ""
+    // Which transaction row is expanded, by txid (an index would follow the wrong row when
+    // the list re-sorts under a new confirmation).
+    property string openTx: ""
+    property bool clearNodePassword: false
 
     Connections {
         target: logos
@@ -77,6 +84,14 @@ Item {
     readonly property bool sendOpen: ready && backend.sendRequestId !== ""
     readonly property bool walletOpen: status.state === "ready" || status.state === "syncing"
     readonly property bool viewOnly: !!status.watchOnly
+    readonly property var nodeCfg: ready ? j(backend.nodeConfigJson, "{}") : ({})
+    readonly property int selectedIndex: ready ? backend.selectedSubaddress : 0
+    readonly property string selectedAddress: {
+        if (!root.receiveRead) return ""
+        var subs = receive.subaddresses || []
+        if (root.selectedIndex >= 0 && root.selectedIndex < subs.length) return subs[root.selectedIndex].address
+        return receive.address || ""
+    }
 
     // When an unlock another app asked for settles, answer the requester; the shell returns them.
     onLastJobChanged: {
@@ -113,6 +128,25 @@ Item {
         return runs
     }
     function hideSecret() { root.shownSecret = ""; root.secretKind = "" }
+
+    // Copy without a C++ round trip: QML runs in the shell process, and a TextEdit's copy()
+    // is the only clipboard the ui_qml sandbox exposes. Kept off-screen and cleared after use
+    // so nothing lingers in a visible item.
+    TextEdit { id: clipHelper; visible: false; width: 0; height: 0 }
+    property string copied: ""
+    Timer { id: copiedTimer; interval: 1400; onTriggered: root.copied = "" }
+    function copyText(what, text) {
+        if (!text) return
+        clipHelper.text = text
+        clipHelper.selectAll()
+        clipHelper.copy()
+        clipHelper.text = ""
+        root.copied = what
+        copiedTimer.restart()
+    }
+    function shortId(s) { return s && s.length > 20 ? s.slice(0, 10) + "…" + s.slice(-8) : (s || "") }
+    function whenOf(ts) { return ts ? new Date(ts * 1000).toLocaleString(Qt.locale(), Locale.ShortFormat) : "—" }
+    function xmrOf(atomic) { return root.ready ? backend.formatXmr(String(atomic || "0")) : "" }
     // Drop a revealed secret whenever it stops being this wallet's, on this page — not only
     // when the user happens to press Hide or the one Close button. Any holder of either role
     // can close the session out from under this view.
@@ -343,118 +377,338 @@ Item {
                 }
             }
 
-            // Receive
+            // Receive — the address list is selectable, and the QR, the URI and every copy
+            // target follow the selection, the way monero-wallet-gui's Receive page works.
             ColumnLayout {
                 spacing: 8
-                LogosText { objectName: "receiveAddress"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
-                            text: root.receiveRead ? receive.address : "—" }
-                // Plain rectangles, one per run of dark modules: the sandbox refuses every URL
-                // import (data: URIs included) and a Canvas never receives paint() in this host.
-                Rectangle {
-                    id: qrBox
-                    objectName: "qrBox"
-                    readonly property var qr: root.ready ? root.parseQr(backend.qrModulesJson) : null
-                    readonly property int quiet: 2
-                    readonly property int cell: qr ? Math.max(1, Math.floor(220 / (qr.size + quiet * 2))) : 0
-                    visible: !!qr
-                    color: "#ffffff"
-                    Layout.preferredWidth: qr ? cell * (qr.size + quiet * 2) : 0
-                    Layout.preferredHeight: Layout.preferredWidth
-                    Repeater {
-                        model: qrBox.qr ? root.qrRuns(qrBox.qr) : []
-                        Rectangle {
-                            x: (modelData[0] + qrBox.quiet) * qrBox.cell; y: (modelData[1] + qrBox.quiet) * qrBox.cell
-                            width: modelData[2] * qrBox.cell; height: qrBox.cell; color: "#000000"
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    LogosText { objectName: "receiveAddress"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
+                                text: root.receiveRead ? (root.selectedAddress || "—") : "—" }
+                    LogosButton { objectName: "copyAddressButton"; text: "Copy address"
+                                  enabled: !!root.selectedAddress
+                                  onClicked: root.copyText("Address", root.selectedAddress) }
+                }
+                LogosText { objectName: "copiedNote"; visible: root.copied !== ""; opacity: 0.8
+                            textFormat: Text.PlainText; text: root.copied + " copied to the clipboard" }
+
+                RowLayout {
+                    spacing: 12
+                    // Plain rectangles, one per run of dark modules: the sandbox refuses every URL
+                    // import (data: URIs included) and a Canvas never receives paint() in this host.
+                    Rectangle {
+                        id: qrBox
+                        objectName: "qrBox"
+                        readonly property var qr: root.ready ? root.parseQr(backend.qrModulesJson) : null
+                        readonly property int quiet: 2
+                        readonly property int cell: qr ? Math.max(1, Math.floor(220 / (qr.size + quiet * 2))) : 0
+                        visible: !!qr
+                        color: "#ffffff"
+                        Layout.preferredWidth: qr ? cell * (qr.size + quiet * 2) : 0
+                        Layout.preferredHeight: Layout.preferredWidth
+                        Repeater {
+                            model: qrBox.qr ? root.qrRuns(qrBox.qr) : []
+                            Rectangle {
+                                x: (modelData[0] + qrBox.quiet) * qrBox.cell; y: (modelData[1] + qrBox.quiet) * qrBox.cell
+                                width: modelData[2] * qrBox.cell; height: qrBox.cell; color: "#000000"
+                            }
+                        }
+                    }
+                    ColumnLayout {
+                        Layout.alignment: Qt.AlignTop
+                        spacing: 6
+                        LogosText { text: "Amount to receive (XMR)"; opacity: 0.9 }
+                        RowLayout {
+                            TextField {
+                                id: wantAmt; objectName: "receiveAmountField"; placeholderText: "optional"
+                                Layout.preferredWidth: 200
+                                validator: RegularExpressionValidator { regularExpression: /^[0-9]*\.?[0-9]{0,12}$/ }
+                                onTextChanged: backend.setReceiveAmount(text)
+                            }
+                            LogosButton { text: "Clear"; visible: wantAmt.text !== ""; onClicked: wantAmt.text = "" }
+                        }
+                        LogosText { text: "Payment URL"; opacity: 0.9 }
+                        LogosText { objectName: "receiveUriText"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere
+                                    Layout.preferredWidth: 420; font.pixelSize: 11
+                                    text: root.ready ? (backend.receiveUri || "—") : "—" }
+                        LogosButton { objectName: "copyUriButton"; text: "Copy payment URL"
+                                      enabled: root.ready && backend.receiveUri !== ""
+                                      onClicked: root.copyText("Payment URL", backend.receiveUri) }
+                    }
+                }
+
+                LogosText { text: "Addresses"; font.pixelSize: 15 }
+                RowLayout {
+                    TextField { id: subLabel; objectName: "newAddressLabelField"; placeholderText: "Label for a new address"; Layout.fillWidth: true }
+                    LogosButton { objectName: "createAddressButton"; text: "Create new address"
+                                  onClicked: { backend.createSubaddress(subLabel.text); subLabel.text = "" } }
+                }
+                ListView {
+                    objectName: "subaddressList"
+                    Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                    model: root.receiveRead ? (receive.subaddresses || []) : []
+                    delegate: Rectangle {
+                        width: ListView.view.width
+                        implicitHeight: subRow.implicitHeight + 10
+                        color: index === root.selectedIndex ? (Theme.palette.surface !== undefined ? Theme.palette.surface : "#242424") : "transparent"
+                        radius: 4
+                        MouseArea { anchors.fill: parent; onClicked: backend.selectSubaddress(index) }
+                        RowLayout {
+                            id: subRow
+                            anchors.left: parent.left; anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: 6; anchors.rightMargin: 6
+                            spacing: 8
+                            LogosText { textFormat: Text.PlainText; font.pixelSize: 11; opacity: 0.7
+                                        text: "#" + modelData.index + (index === root.selectedIndex ? "  ●" : "") }
+                            LogosText { textFormat: Text.PlainText; font.pixelSize: 11
+                                        Layout.preferredWidth: 140; elide: Text.ElideRight
+                                        text: modelData.label || "(no label)" }
+                            LogosText { textFormat: Text.PlainText; font.pixelSize: 11; Layout.fillWidth: true
+                                        elide: Text.ElideMiddle; text: modelData.address }
+                            LogosButton { text: "Copy"; onClicked: root.copyText("Address", modelData.address) }
+                            LogosButton { text: "Set label"; onClicked: { root.labelIndex = modelData.index; root.labelDraft = modelData.label || ""; } }
                         }
                     }
                 }
-                RowLayout {
-                    TextField { id: subLabel; placeholderText: "Subaddress label"; Layout.fillWidth: true }
-                    LogosButton { text: "Create new address"; onClicked: { backend.createSubaddress(subLabel.text); subLabel.text = "" } }
-                }
-                ListView {
-                    Layout.fillWidth: true; Layout.fillHeight: true; clip: true
-                    model: root.receiveRead ? (receive.subaddresses || []) : []
-                    delegate: LogosText { width: ListView.view.width; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; font.pixelSize: 11
-                                          text: "#" + modelData.index + (modelData.label ? " " + modelData.label : "") + "  " + modelData.address }
+                // Set Label, as an inline editor rather than a dialog the sandbox would have to host.
+                Rectangle {
+                    objectName: "labelEditor"
+                    visible: root.labelIndex >= 0
+                    Layout.fillWidth: true; implicitHeight: labRow.implicitHeight + 20; radius: 6
+                    color: Theme.palette.surface !== undefined ? Theme.palette.surface : "#222"
+                    RowLayout {
+                        id: labRow; anchors.fill: parent; anchors.margins: 10; spacing: 8
+                        LogosText { textFormat: Text.PlainText; text: "Label for #" + root.labelIndex }
+                        TextField { objectName: "labelField"; text: root.labelDraft; Layout.fillWidth: true
+                                    onTextChanged: root.labelDraft = text }
+                        LogosButton { objectName: "saveLabelButton"; text: "Save"
+                                      onClicked: { backend.setSubaddressLabel(root.labelIndex, root.labelDraft); root.labelIndex = -1 } }
+                        LogosButton { text: "Clear label"
+                                      onClicked: { backend.setSubaddressLabel(root.labelIndex, ""); root.labelIndex = -1 } }
+                        LogosButton { text: "Cancel"; onClicked: root.labelIndex = -1 }
+                    }
                 }
             }
 
-            // Activity
+            // Activity — a row expands into the detail monero-wallet-gui shows on a transaction:
+            // date, amount, fee, confirmations, blockheight, payment ID, destinations, txid.
             ColumnLayout {
                 LogosText { objectName: "historyEmpty"; visible: root.historyRead && root.history.length === 0; text: "No transactions yet." }
                 LogosText { visible: !root.historyRead; text: "—" }
+                LogosText { objectName: "copiedNoteActivity"; visible: root.copied !== ""; opacity: 0.8
+                            textFormat: Text.PlainText; text: root.copied + " copied to the clipboard" }
                 ListView {
+                    objectName: "historyList"
                     Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                    spacing: 2
                     model: root.history
-                    delegate: RowLayout {
+                    delegate: Rectangle {
+                        id: txRow
                         width: ListView.view.width
-                        LogosText { textFormat: Text.PlainText; text: (modelData.direction === "in" ? "+" : "−") + modelData.amountXmr + " XMR" }
-                        LogosText { textFormat: Text.PlainText; opacity: 0.7; text: modelData.pending ? "pending" : (modelData.failed ? "failed" : (modelData.confirmations + " conf" + (modelData.confirmations < 10 ? " (locked)" : ""))) }
-                        Item { Layout.fillWidth: true }
-                        LogosText { textFormat: Text.PlainText; opacity: 0.6; font.pixelSize: 10; text: (modelData.txid || "").substring(0, 16) + "…" }
+                        implicitHeight: txCol.implicitHeight + 12
+                        radius: 4
+                        readonly property bool open: root.openTx === modelData.txid
+                        color: open ? (Theme.palette.surface !== undefined ? Theme.palette.surface : "#242424") : "transparent"
+                        ColumnLayout {
+                            id: txCol
+                            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+                            anchors.margins: 6
+                            spacing: 4
+                            RowLayout {
+                                Layout.fillWidth: true
+                                LogosText { textFormat: Text.PlainText
+                                            text: (modelData.direction === "in" ? "+" : "−") + modelData.amountXmr + " XMR" }
+                                LogosText { textFormat: Text.PlainText; opacity: 0.7
+                                            text: modelData.pending ? "pending"
+                                                  : (modelData.failed ? "failed"
+                                                  : (modelData.confirmations + " conf" + (modelData.confirmations < 10 ? " (locked)" : ""))) }
+                                LogosText { textFormat: Text.PlainText; opacity: 0.6; font.pixelSize: 11
+                                            text: root.whenOf(modelData.timestamp) }
+                                Item { Layout.fillWidth: true }
+                                LogosText { textFormat: Text.PlainText; opacity: 0.6; font.pixelSize: 10
+                                            text: root.shortId(modelData.txid) }
+                                LogosButton { text: txRow.open ? "Hide" : "Details"
+                                              onClicked: root.openTx = (root.openTx === modelData.txid ? "" : modelData.txid) }
+                            }
+                            GridLayout {
+                                visible: txRow.open
+                                columns: 2; columnSpacing: 14; rowSpacing: 3
+                                Layout.fillWidth: true
+                                LogosText { text: "Date"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: root.whenOf(modelData.timestamp) }
+                                LogosText { text: "Amount"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: modelData.amountXmr + " XMR" }
+                                LogosText { text: "Fee"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11
+                                            text: modelData.direction === "in" ? "—  (paid by the sender)" : modelData.feeXmr + " XMR" }
+                                LogosText { text: "Confirmations"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11
+                                            text: modelData.pending ? "0 (in the pool)" : String(modelData.confirmations) }
+                                LogosText { text: "Blockheight"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11
+                                            text: modelData.height ? String(modelData.height) : "—" }
+                                LogosText { text: "Payment ID"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: modelData.paymentId || "—" }
+                                LogosText { text: "Description"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: modelData.description || "—" }
+                                LogosText { text: "Sent to"; opacity: 0.7; font.pixelSize: 11
+                                            visible: modelData.direction !== "in" }
+                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11; wrapMode: Text.WrapAnywhere
+                                            Layout.fillWidth: true
+                                            visible: modelData.direction !== "in"
+                                            // wallet2 records destinations only for transfers this wallet made.
+                                            text: (modelData.destinations && modelData.destinations.length)
+                                                  ? modelData.destinations.map(function (d) { return d.address }).join("\n")
+                                                  : "not recorded by the wallet" }
+                                LogosText { text: "Received on"; opacity: 0.7; font.pixelSize: 11
+                                            visible: modelData.direction === "in" }
+                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11
+                                            visible: modelData.direction === "in"
+                                            text: modelData.subaddrIndex ? ("subaddress #" + modelData.subaddrIndex) : "—" }
+                                LogosText { text: "Transaction ID"; opacity: 0.7; font.pixelSize: 11 }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    LogosText { objectName: "txidText"; textFormat: Text.PlainText; font.pixelSize: 11
+                                                wrapMode: Text.WrapAnywhere; Layout.fillWidth: true; text: modelData.txid }
+                                    LogosButton { objectName: "copyTxidButton"; text: "Copy"
+                                                  onClicked: root.copyText("Transaction ID", modelData.txid) }
+                                }
+                            }
+                        }
                     }
                 }
                 LogosButton { text: "Refresh"; onClicked: backend.refreshHistory() }
             }
 
-            // Settings — wallet management lives here, as it does in Monero GUI.
-            ColumnLayout {
-                spacing: 8
-                LogosText { text: "Wallet"; font.pixelSize: 16 }
-                RowLayout {
-                    LogosButton { objectName: "closeButton"; text: "Close this wallet"; enabled: !root.busy; onClicked: { root.hideSecret(); backend.closeWallet() } }
-                }
+            // Settings — wallet management and the remote node, where monero-wallet-gui keeps them.
+            ScrollView {
+                clip: true
+                ColumnLayout {
+                    width: parent.width
+                    spacing: 8
+                    LogosText { text: "Wallet"; font.pixelSize: 16 }
+                    RowLayout {
+                        LogosButton { objectName: "closeButton"; text: "Close this wallet"; enabled: !root.busy; onClicked: { root.hideSecret(); backend.closeWallet() } }
+                    }
 
-                LogosText { text: "Change wallet password"; opacity: 0.9 }
-                RowLayout {
-                    TextField { id: oldPw; objectName: "oldPasswordField"; placeholderText: "Current password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
-                    TextField { id: newPw; objectName: "newPasswordField"; placeholderText: "New password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
-                    LogosButton { objectName: "changePasswordButton"; text: "Change"; enabled: !root.busy && oldPw.text !== "" && newPw.text !== ""
-                                  onClicked: { backend.changePassword(oldPw.text, newPw.text); oldPw.text = ""; newPw.text = "" } }
-                }
+                    LogosText { text: "Change wallet password"; opacity: 0.9 }
+                    RowLayout {
+                        TextField { id: oldPw; objectName: "oldPasswordField"; placeholderText: "Current password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                        TextField { id: newPw; objectName: "newPasswordField"; placeholderText: "New password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                        LogosButton { objectName: "changePasswordButton"; text: "Change"; enabled: !root.busy && oldPw.text !== "" && newPw.text !== ""
+                                      onClicked: { backend.changePassword(oldPw.text, newPw.text); oldPw.text = ""; newPw.text = "" } }
+                    }
 
-                LogosText { text: "Show seed & keys"; opacity: 0.9 }
-                RowLayout {
-                    TextField { id: revealPw; objectName: "revealPasswordField"; placeholderText: "Password to reveal"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
-                    LogosButton {
-                        objectName: "revealSeedButton"; text: "Show seed"; enabled: revealPw.text !== "" && !root.viewOnly
-                        onClicked: {
-                            root.secretKind = "mnemonic seed"
-                            logos.watch(backend.revealSeed(revealPw.text), function (v) { root.shownSecret = v || "" }, function () { root.shownSecret = "" })
-                            revealPw.text = ""
+                    LogosText { text: "Show seed & keys"; opacity: 0.9 }
+                    RowLayout {
+                        TextField { id: revealPw; objectName: "revealPasswordField"; placeholderText: "Password to reveal"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                        LogosButton {
+                            objectName: "revealSeedButton"; text: "Show seed"; enabled: revealPw.text !== "" && !root.viewOnly
+                            onClicked: {
+                                root.secretKind = "mnemonic seed"
+                                logos.watch(backend.revealSeed(revealPw.text), function (v) { root.shownSecret = v || "" }, function () { root.shownSecret = "" })
+                                revealPw.text = ""
+                            }
+                        }
+                        LogosButton {
+                            objectName: "revealViewKeyButton"; text: "Show view key"; enabled: revealPw.text !== ""
+                            onClicked: {
+                                root.secretKind = "secret view key"
+                                logos.watch(backend.revealViewKey(revealPw.text), function (v) { root.shownSecret = v || "" }, function () { root.shownSecret = "" })
+                                revealPw.text = ""
+                            }
                         }
                     }
-                    LogosButton {
-                        objectName: "revealViewKeyButton"; text: "Show view key"; enabled: revealPw.text !== ""
-                        onClicked: {
-                            root.secretKind = "secret view key"
-                            logos.watch(backend.revealViewKey(revealPw.text), function (v) { root.shownSecret = v || "" }, function () { root.shownSecret = "" })
-                            revealPw.text = ""
+                    Rectangle {
+                        visible: root.shownSecret !== ""
+                        Layout.fillWidth: true; implicitHeight: secretCol.implicitHeight + 24
+                        color: Theme.palette.surface !== undefined ? Theme.palette.surface : "#222"
+                        radius: 6
+                        ColumnLayout {
+                            id: secretCol; anchors.fill: parent; anchors.margins: 12
+                            LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true
+                                        text: "Your " + root.secretKind + ". DO NOT share it with anyone: it can "
+                                              + (root.secretKind === "mnemonic seed" ? "spend" : "see") + " your funds. Store a copy securely; it is not kept here." }
+                            TextEdit { objectName: "secretText"; text: root.shownSecret; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; Layout.fillWidth: true; color: Theme.palette.text !== undefined ? Theme.palette.text : "#eee" }
+                            RowLayout {
+                                LogosButton { text: "Copy"; onClicked: root.copyText(root.secretKind === "mnemonic seed" ? "Seed" : "View key", root.shownSecret) }
+                                LogosButton { text: "Hide"; onClicked: root.hideSecret() }
+                            }
                         }
                     }
-                }
-                Rectangle {
-                    visible: root.shownSecret !== ""
-                    Layout.fillWidth: true; implicitHeight: secretCol.implicitHeight + 24
-                    color: Theme.palette.surface !== undefined ? Theme.palette.surface : "#222"
-                    radius: 6
-                    ColumnLayout {
-                        id: secretCol; anchors.fill: parent; anchors.margins: 12
-                        LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true
-                                    text: "Your " + root.secretKind + ". DO NOT share it with anyone: it can "
-                                          + (root.secretKind === "mnemonic seed" ? "spend" : "see") + " your funds. Store a copy securely; it is not kept here." }
-                        TextEdit { objectName: "secretText"; text: root.shownSecret; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; Layout.fillWidth: true; color: Theme.palette.text !== undefined ? Theme.palette.text : "#eee" }
-                        LogosButton { text: "Hide"; onClicked: root.hideSecret() }
-                    }
-                }
 
-                LogosText { text: "Node"; font.pixelSize: 16 }
-                LogosText { textFormat: Text.PlainText; text: "Network: " + (status.activeNetwork || "") + " — switch it from the Wallets screen while no wallet is open." }
-                LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true
-                            text: node.reachable === true ? ("Node reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") ) : "Node: " + (node.error || "unknown") }
-                LogosText { textFormat: Text.PlainText; text: "Engine: monero_c " + (status.libraryVersion || "") + " (LGPL-3.0, dynamically linked)" }
-                Item { Layout.fillHeight: true }
+                    // ---- Remote node ----
+                    LogosText { text: "Node"; font.pixelSize: 16 }
+                    LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.85
+                                text: node.reachable === true
+                                      ? ("Reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") + " · " + (node.rttMs || 0) + "ms")
+                                      : ("Node: " + (node.error || "unknown")) }
+                    LogosText { textFormat: Text.PlainText; opacity: 0.85
+                                text: "Network: " + (status.activeNetwork || "") + " — switch it from the Wallets screen while no wallet is open." }
+                    LogosText { visible: root.walletOpen; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.7
+                                text: "Close the wallet to change the node: the engine binds its daemon when the wallet opens." }
+                    GridLayout {
+                        columns: 2; columnSpacing: 10; rowSpacing: 6
+                        Layout.fillWidth: true
+                        enabled: root.ready && !root.walletOpen
+
+                        LogosText { text: "Address"; opacity: 0.8 }
+                        TextField { id: ndHost; objectName: "nodeHostField"; Layout.fillWidth: true
+                                    placeholderText: "host or host:port, e.g. node.monerodevs.org:38089"
+                                    text: root.nodeCfg.url || "" }
+                        LogosText { text: "Daemon username"; opacity: 0.8 }
+                        TextField { id: ndUser; objectName: "nodeUserField"; Layout.fillWidth: true
+                                    placeholderText: "optional"; text: root.nodeCfg.username || "" }
+                        LogosText { text: "Daemon password"; opacity: 0.8 }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            TextField { id: ndPass; objectName: "nodePasswordField"; Layout.fillWidth: true
+                                        echoMode: TextInput.Password
+                                        Component.onCompleted: passwordMaskDelay = 0
+                                        placeholderText: root.nodeCfg.hasPassword ? "unchanged — type to replace" : "optional" }
+                            LogosButton { visible: !!root.nodeCfg.hasPassword; text: "Clear stored"
+                                          onClicked: { ndPass.text = ""; root.clearNodePassword = true } }
+                        }
+                        LogosText { text: "Proxy"; opacity: 0.8 }
+                        TextField { id: ndProxy; objectName: "nodeProxyField"; Layout.fillWidth: true
+                                    placeholderText: "socks5h://127.0.0.1:9050 (empty for none)"
+                                    text: root.nodeCfg.proxy || "" }
+                        LogosText { text: ""; opacity: 0 }
+                        CheckBox { id: ndProxyReq; objectName: "nodeProxyRequiredBox"; text: "Require the proxy (refuse to connect without it)"
+                                   checked: !!root.nodeCfg.proxyRequired }
+                        LogosText { text: ""; opacity: 0 }
+                        CheckBox { id: ndTrusted; objectName: "nodeTrustedBox"; text: "Trusted daemon"
+                                   checked: !!root.nodeCfg.trusted }
+                    }
+                    RowLayout {
+                        LogosButton {
+                            objectName: "saveNodeButton"; text: "Save node"
+                            enabled: root.ready && !root.walletOpen && ndHost.text !== ""
+                            onClicked: {
+                                var cfg = { url: ndHost.text.trim(),
+                                            username: ndUser.text.trim(),
+                                            proxy: ndProxy.text.trim(),
+                                            proxyRequired: ndProxyReq.checked,
+                                            trusted: ndTrusted.checked }
+                                // Omitting password KEEPS the stored one; "" clears it.
+                                if (ndPass.text !== "") cfg.password = ndPass.text
+                                else if (root.clearNodePassword) cfg.password = ""
+                                backend.saveNodeConfig(JSON.stringify(cfg))
+                                ndPass.text = ""; root.clearNodePassword = false
+                            }
+                        }
+                        LogosButton { text: "Revert"; enabled: !root.walletOpen
+                                      onClicked: { ndHost.text = root.nodeCfg.url || ""; ndUser.text = root.nodeCfg.username || ""
+                                                   ndProxy.text = root.nodeCfg.proxy || ""; ndProxyReq.checked = !!root.nodeCfg.proxyRequired
+                                                   ndTrusted.checked = !!root.nodeCfg.trusted; ndPass.text = ""; root.clearNodePassword = false } }
+                    }
+
+                    LogosText { textFormat: Text.PlainText; opacity: 0.7
+                                text: "Engine: monero_c " + (status.libraryVersion || "") + " (LGPL-3.0, dynamically linked)" }
+                    Item { Layout.fillHeight: true }
+                }
             }
         }
     }

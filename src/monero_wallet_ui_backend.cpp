@@ -62,6 +62,20 @@ void MoneroWalletUiBackend::loadStatus() {
     if (!h.isEmpty()) setNodeHealthJson(stripOk(h));
 }
 
+// The daemon this network points at. The RPC password is redacted by the backend to a
+// hasPassword flag before it reaches here, so nothing secret lands in a PROP.
+void MoneroWalletUiBackend::loadNodeConfig() {
+    const QString c = modules().monero_wallet_backend.node_config();
+    if (!c.isEmpty() && parse(c).value("ok").toBool()) setNodeConfigJson(stripOk(c));
+}
+
+void MoneroWalletUiBackend::saveNodeConfig(QString configJson) {
+    setLastError({});
+    if (!ok(modules().monero_wallet_backend.set_node_config(configJson), "node")) return;
+    loadNodeConfig();
+    loadStatus();
+}
+
 // The wallet registry and the network list: what the Wallets screen renders while nothing is open.
 void MoneroWalletUiBackend::loadRegistry() {
     auto &b = modules().monero_wallet_backend;
@@ -82,12 +96,35 @@ void MoneroWalletUiBackend::loadBalances() {
 void MoneroWalletUiBackend::loadReceive() {
     const QJsonObject st = parse(statusJson());
     const QString state = st.value("state").toString();
-    if (state != "ready" && state != "syncing") { setReceiveJson({}); setQrModulesJson({}); return; }
+    if (state != "ready" && state != "syncing") {
+        setReceiveJson({}); setQrModulesJson({}); setReceiveUri({}); m_lastQrFor.clear();
+        return;
+    }
     const QString r = modules().monero_wallet_backend.receive_info(0);
     if (!ok(r, "receive")) { setReceiveJson({}); return; }
     setReceiveJson(stripOk(r));
-    const QString addr = parse(r).value("address").toString();
-    if (!addr.isEmpty() && addr != m_lastQrFor) { m_lastQrFor = addr; setQrModulesJson(qrModulesJson(addr)); }
+    publishReceiveSelection();
+}
+
+// The QR and the copy target follow the SELECTED subaddress and any requested amount, so a
+// merchant can show a per-customer address rather than the account's primary one.
+void MoneroWalletUiBackend::publishReceiveSelection() {
+    const QJsonObject rc = parse(receiveJson());
+    const QJsonArray subs = rc.value("subaddresses").toArray();
+    int idx = selectedSubaddress();
+    if (idx < 0 || idx >= subs.size()) idx = 0;
+    QString addr = rc.value("address").toString();
+    if (idx < subs.size()) {
+        const QString a = subs.at(idx).toObject().value("address").toString();
+        if (!a.isEmpty()) addr = a;
+    }
+    if (addr.isEmpty()) { setReceiveUri({}); setQrModulesJson({}); m_lastQrFor.clear(); return; }
+
+    // BIP-21 shaped, as monero-wallet-gui and the wallets that read these QRs expect.
+    QString uri = QStringLiteral("monero:") + addr;
+    if (!m_receiveAmount.isEmpty()) uri += QStringLiteral("?tx_amount=") + m_receiveAmount;
+    setReceiveUri(uri);
+    if (uri != m_lastQrFor) { m_lastQrFor = uri; setQrModulesJson(qrModulesJson(uri)); }
 }
 
 // A module matrix rather than an image: the design system ships no QR control, and
@@ -111,6 +148,7 @@ void MoneroWalletUiBackend::refresh() {
     setDataLoading(true);
     loadStatus();
     loadRegistry();
+    loadNodeConfig();
     loadBalances();
     loadReceive();
     refreshHistory();
@@ -210,7 +248,27 @@ void MoneroWalletUiBackend::closeWallet() {
 
 void MoneroWalletUiBackend::createSubaddress(QString label) {
     setLastError({});
-    if (ok(modules().monero_wallet_backend.create_subaddress(0, label), "subaddress")) loadReceive();
+    const QString r = modules().monero_wallet_backend.create_subaddress(0, label);
+    if (!ok(r, "subaddress")) return;
+    loadReceive();
+    // Select what was just made: the point of creating one is to hand it out.
+    const int idx = parse(r).value("index").toInt(-1);
+    if (idx >= 0) { setSelectedSubaddress(idx); publishReceiveSelection(); }
+}
+
+void MoneroWalletUiBackend::selectSubaddress(int index) {
+    setSelectedSubaddress(index < 0 ? 0 : index);
+    publishReceiveSelection();
+}
+
+void MoneroWalletUiBackend::setReceiveAmount(QString amountXmr) {
+    m_receiveAmount = amountXmr.trimmed();
+    publishReceiveSelection();
+}
+
+void MoneroWalletUiBackend::setSubaddressLabel(int index, QString label) {
+    setLastError({});
+    if (ok(modules().monero_wallet_backend.set_subaddress_label(0, index, label), "label")) loadReceive();
 }
 
 void MoneroWalletUiBackend::prepareSend(QString sendJson) {
