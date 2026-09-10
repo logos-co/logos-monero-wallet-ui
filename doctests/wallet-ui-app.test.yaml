@@ -62,7 +62,7 @@ sections:
           tests:
             - name: "With nothing open the app shows the Wallets screen"
               action: wait_for
-              texts: ["No wallet open", "No wallets on this device yet. Create one, or restore from a seed."]
+              texts: ["No wallet open", "Wallets"]
               timeout: 30000
               screenshot: "wallet-ui-wallets.png"
             - name: "The node form is REACHABLE with no wallet open — the Wallets screen owns it"
@@ -74,15 +74,15 @@ sections:
               action: call_method
               find_by: "objectName"
               find_value: "moneroWalletRoot"
-              method: "selectWalletsPage"
-              args: [5]
-            - name: "The page itself is on screen (not merely present in the tree)"
-              # `visible` propagates down from a hidden parent, so this is the half that fails if
-              # the form ever moves back behind an open wallet. findByProperty ignores visibility,
-              # so asserting the field alone would pass either way.
+              method: "openSheet"
+              args: ["node"]
+            - name: "The sheet itself is on screen (not merely present in the tree)"
+              # `visible` is the half that fails if the form ever goes back behind an open
+              # wallet: findByProperty ignores visibility, so asserting the field alone would
+              # pass either way. A closed Dialog reports visible false.
               action: expect_property
               find_by: "objectName"
-              find_value: "walletsNodePage"
+              find_value: "nodeSheet"
               property: "visible"
               value: true
             - name: "...and its address field accepts input"
@@ -104,12 +104,12 @@ sections:
             - name: "Save node"
               action: click
               target: "Save node"
-            - name: "Go to Create (navigate via the root: only the active StackLayout page is in the scene)"
+            - name: "Open the Create sheet (via the root: a driver cannot click a LogosTabButton)"
               action: call_method
               find_by: "objectName"
               find_value: "moneroWalletRoot"
-              method: "selectWalletsPage"
-              args: [2]
+              method: "openSheet"
+              args: ["create"]
             - name: "Name the wallet"
               action: set_text
               find_by: "objectName"
@@ -136,6 +136,21 @@ sections:
               texts: ["Wallet: doctest"]
               timeout: 60000
               screenshot: "wallet-ui-open.png"
+            - name: "Creating dismissed its sheet — no stale form left over the open wallet"
+              # A screenshot caught this while every assertion passed: findByProperty reads
+              # straight through a popup, so nothing in this run noticed two sheets stacked on
+              # top of the balance. Asserted on `visible`, which is the only thing that can tell.
+              action: expect_property
+              find_by: "objectName"
+              find_value: "createWalletSheet"
+              property: "visible"
+              value: false
+            - name: "...and neither is the node sheet opened earlier"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "nodeSheet"
+              property: "visible"
+              value: false
             - name: "The wallet is open but the engine is NOT connected, and the chrome says so"
               # wallet2 keeps serving its last known daemon height after the daemon goes away, so
               # before this the sync chip went on printing "Synced … 100%" over a dead node — in a
@@ -164,18 +179,11 @@ sections:
               property: "visible"
               value: true
               screenshot: "wallet-ui-receive.png"
-            - name: "...and with a wallet open that same page is NOT on screen"
-              # The control for the assertion above. If this reads true, `visible` is not
-              # telling the two states apart and the reachability check higher up proves
-              # nothing — which is how the original bug survived a green run.
-              action: call_method
-              find_by: "objectName"
-              find_value: "moneroWalletRoot"
-              method: "selectWalletsPage"
-              args: [5]
-            - name: "Hidden behind the open wallet"
+            - name: "...and the Close wallet control is on the chrome, not buried in Settings"
+              # The user's report: closing was four clicks into the Settings tab. It is a
+              # session action, so it lives beside the badges and is visible from every tab.
               action: expect_property
               find_by: "objectName"
-              find_value: "walletsNodePage"
+              find_value: "closeWalletButton"
               property: "visible"
-              value: false
+              value: true

@@ -49,8 +49,7 @@ Item {
         // else, because managing wallets is a screen here rather than a trip to a second app.
         function onIntentRequested(requestId, intent, params, requesterName) {
             if (intent === "monero.accounts.manage") {
-                root.walletsPage = 0
-                if (root.walletOpen) root.page = 4      // Settings holds management once open
+                if (root.walletOpen) root.selectTab(4)  // Settings holds management once open
                 logos.respond(requestId, true, ({}), "")   // arriving IS the request; handoff keeps the user here
                 return
             }
@@ -61,8 +60,8 @@ Item {
             if (root.walletOpen) { logos.respond(requestId, false, ({}), "another wallet is already open"); return }
             root.unlockRequestId = requestId
             root.unlockWallet = w
-            root.walletsPage = 1
             openNameField.text = w
+            root.openSheet("open")
         }
     }
     Component.onCompleted: root.ready = root.backend !== null && logos.isViewModuleReady("monero_wallet_ui")
@@ -138,9 +137,16 @@ Item {
     // The harness navigates with these rather than clicking a tab: only the active StackLayout
     // page is in the visible scene, and a text-click on a TabButton is not a reliable switch.
     property int page: 0            // 0 Home, 1 Send, 2 Receive, 3 Activity, 4 Settings
-    property int walletsPage: 0     // 0 list, 1 open, 2 create, 3 restore seed, 4 restore keys, 5 node
-    function selectTab(i) { root.page = i }
-    function selectWalletsPage(i) { root.walletsPage = i }
+    function selectTab(i) { root.page = i; tabs.currentIndex = i }
+    // The wallet forms are sheets, so there is no page index to select any more. One named
+    // entry point instead — for a driver, and for the intent handler above.
+    function openSheet(which) {
+        if (which === "open")   { openWalletSheet.open(); return }
+        if (which === "create") { createSheet.open();  return }
+        if (which === "seed")   { seedSheet.open();    return }
+        if (which === "keys")   { keysSheet.open();    return }
+        if (which === "node")   { nodeSheet.open();    return }
+    }
     // Populate the node form from the active network's stored config, dropping any half-finished
     // edit. `clearNodePassword` is armed by the Clear stored button and, before this, was reset
     // only by Save or Revert — so it survived leaving the page and even a network switch, and the
@@ -194,9 +200,12 @@ Item {
     // Drop a revealed secret whenever it stops being this wallet's, on this page — not only
     // when the user happens to press Hide or the one Close button. Any holder of either role
     // can close the session out from under this view.
-    onWalletOpenChanged: root.hideSecret()
+    function closeSheets() {
+        openWalletSheet.close(); createSheet.close(); seedSheet.close()
+        keysSheet.close(); nodeSheet.close()
+    }
+    onWalletOpenChanged: { root.hideSecret(); if (root.walletOpen) root.closeSheets() }
     onPageChanged: if (root.page !== 4) root.hideSecret()
-    onWalletsPageChanged: if (root.walletsPage === 5) root.resetNodeForm()
 
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 16; spacing: 10
@@ -205,12 +214,6 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             LogosText { text: "Monero"; font.pixelSize: 22 }
-            Rectangle {
-                objectName: "networkChip"; radius: 10; implicitHeight: 22; implicitWidth: chipText.implicitWidth + 16
-                color: (status.activeNetwork || status.network) === "mainnet" ? "#c0392b" : "#2c7a7b"
-                LogosText { id: chipText; anchors.centerIn: parent; textFormat: Text.PlainText; text: (status.activeNetwork || status.network || "—").toUpperCase(); color: "white"; font.pixelSize: 11 }
-            }
-            LogosText { objectName: "viewOnlyBadge"; visible: root.viewOnly; text: "VIEW-ONLY"; color: "#e67e22"; font.pixelSize: 11 }
             Item { Layout.fillWidth: true }
             LogosText {
                 objectName: "syncChip"; textFormat: Text.PlainText; font.pixelSize: 12
@@ -228,8 +231,36 @@ Item {
                           + (root.engineConnected ? "" : " · not connected")))
                     : "No wallet open")
             }
-            LogosText { objectName: "nodeChip"; textFormat: Text.PlainText; font.pixelSize: 12; opacity: 0.8
+            LogosText { objectName: "nodeChip"; textFormat: Text.PlainText; font.pixelSize: 12; color: Theme.palette.textSecondary
                         text: node.reachable === true ? ("node " + (node.route || "") + " " + (node.rttMs || 0) + "ms") : (node.reachable === false ? "node unreachable" : "") }
+
+            // Badges, not hand-rolled Rectangles, and coloured the way the EVM wallet colours
+            // its chain chip: the live network is `success`, every test network `accentOrange`.
+            // That is the inverse of what this view did — it painted MAINNET red — and the
+            // family's reading is the better one: orange marks the networks where the money is
+            // not real, so the unmarked, calm state is the one that costs something.
+            LogosBadge {
+                objectName: "viewOnlyBadge"
+                visible: root.viewOnly
+                text: "VIEW-ONLY"
+                color: Theme.palette.warning
+            }
+            LogosBadge {
+                objectName: "networkChip"
+                text: (status.activeNetwork || status.network || networks.active || "—").toUpperCase()
+                color: (status.activeNetwork || status.network || networks.active) === "mainnet"
+                       ? Theme.palette.success : Theme.palette.accentOrange
+            }
+            // Closing is a session action, so it belongs in the session's own chrome rather than
+            // four clicks away under Settings. Nothing is destroyed: the wallet file stays, and
+            // this is the only way back to the wallet list.
+            LogosButton {
+                objectName: "closeWalletButton"
+                visible: root.walletOpen
+                enabled: root.ready && !root.busy
+                text: "Close wallet"
+                onClicked: { root.hideSecret(); backend.closeWallet() }
+            }
         }
 
         // One line a driver (and a user) can read the whole wallet state from.
@@ -241,40 +272,50 @@ Item {
                 : (status.state === "opening" ? "Opening…" : (status.state === "closing" ? "Closing…" : "No wallet open")))
         }
 
-        LogosText { objectName: "errorLine"; visible: root.ready && backend.lastError !== ""; text: root.ready ? backend.lastError : ""; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: "#d9534f" }
+        LogosText { objectName: "errorLine"; visible: root.ready && backend.lastError !== ""; text: root.ready ? backend.lastError : ""; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.error }
 
         // A send whose outcome is unknown is reported HERE, above the tabs, not inside the Send
         // tab: the tab space is hidden whenever the wallet is not open, and the engine dying is
         // both what makes the outcome unknown AND what closes the wallet. Inside the sheet this
         // banner was invisible in exactly the case it exists for.
-        Rectangle {
+        // A LogosFrame with warning-coloured text, not a tinted Rectangle: the family paints no
+        // coloured banner fills, and there is no token for one — the weight comes from the words
+        // and from `palette.warning`, which stays legible on whatever the frame sits on.
+        // The frame's contentItem, NOT a child: LogosFrame overrides none, so a plain child
+        // would be laid out on top of the frame's own content item rather than inside it.
+        LogosFrame {
             objectName: "sendUnknownBanner"
             visible: root.ready && send.state === "unknown"
-            Layout.fillWidth: true; implicitHeight: unkCol.implicitHeight + 16; radius: 4
-            color: "#5a3d12"
-            ColumnLayout {
-                id: unkCol; anchors.fill: parent; anchors.margins: 8; spacing: 2
-                LogosText { text: "A transaction's outcome is unknown"; wrapMode: Text.Wrap; Layout.fillWidth: true }
-                LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.9
+            Layout.fillWidth: true
+            contentItem: ColumnLayout {
+                spacing: Theme.spacing.tiny
+                LogosText { text: "A transaction's outcome is unknown"; wrapMode: Text.Wrap; Layout.fillWidth: true
+                            color: Theme.palette.warning }
+                LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
                             text: send.error || "" }
-                LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.9
+                LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
                             text: "Check Activity once the wallet re-syncs, before sending again." }
                 LogosButton { objectName: "dismissUnknownButton"; text: "Dismiss"; onClicked: backend.cancelSend() }
             }
         }
 
         // ================= NO WALLET OPEN: the Wallets screen =================
+        // Shaped like the keystore's Accounts screen: a heading, one row of actions, and the
+        // list. The forms are modal sheets rather than a second tab strip — a six-tab strip
+        // above a two-row list made the list look like one option among six, and left four
+        // tabs' worth of empty form on screen whenever the user was not filling one in.
         ColumnLayout {
             visible: root.ready && !root.walletOpen
             Layout.fillWidth: true; Layout.fillHeight: true
-            spacing: 10
+            spacing: Theme.spacing.small
 
             RowLayout {
                 Layout.fillWidth: true
-                LogosText { text: "Wallets"; font.pixelSize: 16 }
+                LogosText { text: "Wallets"; font.pixelSize: 22 }
                 Item { Layout.fillWidth: true }
-                LogosText { textFormat: Text.PlainText; opacity: 0.8; text: "Network: " + (networks.active || "?") }
-                ComboBox {
+                LogosText { textFormat: Text.PlainText; color: Theme.palette.textSecondary
+                            text: "Network" }
+                LogosComboBox {
                     id: netBox
                     objectName: "networkBox"
                     enabled: root.ready && !root.busy
@@ -284,214 +325,73 @@ Item {
                 }
             }
 
-            TabBar {
-                id: walletTabs
+            RowLayout {
                 Layout.fillWidth: true
-                currentIndex: root.walletsPage
-                onCurrentIndexChanged: root.walletsPage = currentIndex
-                TabButton { text: "Wallets" }
-                TabButton { text: "Open" }
-                TabButton { text: "Create" }
-                TabButton { text: "Restore (seed)" }
-                TabButton { text: "Restore (keys)" }
-                TabButton { text: "Node" }
+                spacing: Theme.spacing.small
+                LogosButton { objectName: "newWalletButton";    text: "Create";          enabled: root.ready && !root.busy; onClicked: createSheet.open() }
+                LogosButton { objectName: "restoreSeedOpen";    text: "Restore phrase";  enabled: root.ready && !root.busy; onClicked: seedSheet.open() }
+                LogosButton { objectName: "restoreKeysOpen";    text: "Restore keys";    enabled: root.ready && !root.busy; onClicked: keysSheet.open() }
+                LogosButton { objectName: "nodeSettingsButton"; text: "Node";            enabled: root.ready;              onClicked: nodeSheet.open() }
+                Item { Layout.fillWidth: true }
+                LogosButton { objectName: "refreshWalletsButton"; text: "Refresh"; enabled: root.ready; onClicked: backend.clearAndRefresh() }
             }
 
-            StackLayout {
+            // One container for both the empty state and the list, so the empty state is
+            // centred in the space the list would have filled rather than pinned to the top.
+            Item {
                 Layout.fillWidth: true; Layout.fillHeight: true
-                currentIndex: root.walletsPage
 
-                // 0: the wallets on this device
-                ColumnLayout {
-                    LogosText { objectName: "walletsEmpty"; visible: root.wallets.length === 0
-                                text: "No wallets on this device yet. Create one, or restore from a seed." }
-                    ListView {
-                        Layout.fillWidth: true; Layout.fillHeight: true; clip: true
-                        model: root.wallets
-                        delegate: RowLayout {
-                            width: ListView.view.width
-                            LogosText { text: modelData.name + (modelData.viewOnly ? "  (view-only)" : ""); textFormat: Text.PlainText }
-                            LogosText { text: modelData.network || ""; textFormat: Text.PlainText; opacity: 0.7 }
+                LogosText {
+                    objectName: "walletsEmpty"
+                    anchors.centerIn: parent
+                    visible: root.wallets.length === 0
+                    color: Theme.palette.textSecondary
+                    text: "No wallets yet"
+                }
+
+                ListView {
+                    anchors.fill: parent
+                    clip: true
+                    spacing: Theme.spacing.tiny
+                    model: root.wallets
+                    delegate: LogosFrame {
+                        width: ListView.view.width
+                        contentItem: RowLayout {
+                            spacing: Theme.spacing.small
+                            // A wallet name is user-typed, so PlainText: LogosText is AutoText.
+                            LogosText { text: modelData.name; textFormat: Text.PlainText }
+                            LogosText { text: modelData.network || ""; textFormat: Text.PlainText
+                                        color: Theme.palette.textTertiary }
+                            LogosBadge {
+                                visible: !!modelData.viewOnly
+                                text: "VIEW-ONLY"
+                                color: Theme.palette.warning
+                            }
                             Item { Layout.fillWidth: true }
-                            LogosButton { text: "Open"; enabled: !root.busy
-                                          onClicked: { openNameField.text = modelData.name; root.walletsPage = 1 } }
-                        }
-                    }
-                    LogosButton { text: "Refresh"; enabled: root.ready; onClicked: backend.clearAndRefresh() }
-                }
-
-                // 1: open one (the password sheet)
-                ColumnLayout {
-                    spacing: 8
-                    LogosText { visible: root.unlockRequestId !== ""; wrapMode: Text.Wrap; Layout.fillWidth: true
-                                text: "Another app asked to unlock this wallet." }
-                    TextField { id: openNameField; objectName: "openNameField"; placeholderText: "Wallet name"; Layout.fillWidth: true }
-                    TextField {
-                        id: openPw; objectName: "openPasswordField"; placeholderText: "Wallet password"
-                        echoMode: TextInput.Password; Layout.fillWidth: true
-                        Component.onCompleted: passwordMaskDelay = 0
-                        onAccepted: if (openButton.enabled) openButton.clicked()
-                    }
-                    LogosButton {
-                        id: openButton
-                        objectName: "openButton"; text: root.busy ? "Opening…" : "Open"
-                        enabled: root.ready && !root.busy && openNameField.text !== ""
-                        onClicked: { backend.openWallet(openNameField.text, openPw.text); openPw.text = "" }
-                    }
-                }
-
-                // 2: create a new wallet
-                ColumnLayout {
-                    spacing: 8
-                    TextField { id: cName; objectName: "createNameField"; placeholderText: "Wallet name"; Layout.fillWidth: true }
-                    TextField { id: cLabel; placeholderText: "Label (optional)"; Layout.fillWidth: true }
-                    TextField { id: cPw; objectName: "createPasswordField"; placeholderText: "Add a strong password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
-                    TextField { id: cPw2; placeholderText: "Repeat password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
-                    LogosText { visible: cPw.text !== cPw2.text && cPw2.text !== ""; text: "Passwords do not match" }
-                    LogosButton {
-                        objectName: "createButton"; text: root.busy ? "Creating…" : "Create wallet"
-                        enabled: root.ready && !root.busy && cName.text !== "" && cPw.text !== "" && cPw.text === cPw2.text
-                        onClicked: { backend.createWallet(cName.text, cPw.text, cLabel.text); cPw.text = ""; cPw2.text = "" }
-                    }
-                    LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.8
-                                text: "The wallet opens once it is created. Write down your mnemonic seed and keep it safe — "
-                                      + "Settings › Show seed & keys, behind your password." }
-                }
-
-                // 3: restore from a mnemonic seed
-                ColumnLayout {
-                    spacing: 8
-                    TextField { id: rName; placeholderText: "Wallet name"; Layout.fillWidth: true }
-                    // LogosTextArea sets placeholderTextColor from the theme; the raw TextArea
-                    // left the 25-word prompt unreadable on the dark background.
-                    LogosTextArea { id: rSeed; objectName: "seedField"; placeholderText: "25-word mnemonic seed"; Layout.fillWidth: true; Layout.preferredHeight: 90 }
-                    TextField { id: rHeight; placeholderText: "Restore height (block number; 0 scans from genesis — hours)"; Layout.fillWidth: true; validator: IntValidator { bottom: 0 } }
-                    TextField { id: rPw; placeholderText: "New wallet password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
-                    LogosButton {
-                        objectName: "restoreSeedButton"
-                        text: root.busy ? "Restoring…" : "Restore"
-                        enabled: root.ready && !root.busy && rName.text !== "" && rSeed.text.trim().split(/\s+/).length === 25 && rPw.text !== ""
-                        onClicked: { backend.restoreFromSeed(rName.text, rPw.text, rSeed.text.trim(), parseInt(rHeight.text || "0"), ""); rSeed.text = ""; rPw.text = "" }
-                    }
-                }
-
-                // 4: restore from keys (view-only when no spend key)
-                ColumnLayout {
-                    spacing: 8
-                    TextField { id: kName; placeholderText: "Wallet name"; Layout.fillWidth: true }
-                    TextField { id: kAddr; placeholderText: "Primary address"; Layout.fillWidth: true }
-                    TextField { id: kView; placeholderText: "Private view key"; Layout.fillWidth: true }
-                    TextField { id: kSpend; placeholderText: "Private spend key (leave empty for a view-only wallet)"; Layout.fillWidth: true }
-                    TextField { id: kHeight; placeholderText: "Restore height"; Layout.fillWidth: true; validator: IntValidator { bottom: 0 } }
-                    TextField { id: kPw; placeholderText: "New wallet password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
-                    LogosButton {
-                        objectName: "restoreKeysButton"
-                        text: root.busy ? "Restoring…" : (kSpend.text === "" ? "Restore view-only wallet" : "Restore wallet")
-                        enabled: root.ready && !root.busy && kName.text !== "" && kAddr.text !== "" && kView.text !== "" && kPw.text !== ""
-                        onClicked: { backend.restoreFromKeys(kName.text, kPw.text, kAddr.text, kView.text, kSpend.text, parseInt(kHeight.text || "0"), ""); kView.text = ""; kSpend.text = ""; kPw.text = "" }
-                    }
-                }
-
-                // 5: the remote node. It lives HERE rather than in Settings because this is the
-                // screen you are on when no wallet is open, which is the only time it can be
-                // saved — wallet2 binds its daemon at open, so a change while one is open would
-                // be a lie until the next open, and the backend refuses it.
-                ColumnLayout {
-                    // Named so a test can assert REACHABILITY, not just that the fields exist:
-                    // findByProperty walks the whole tree ignoring visibility, so an assertion on
-                    // the field alone passes even when this screen is hidden behind an open
-                    // wallet — which is the exact bug this page was moved here to fix.
-                    objectName: "walletsNodePage"
-                    spacing: 8
-                    LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.85
-                                text: node.reachable === true
-                                      ? ("Reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") + " · " + (node.rttMs || 0) + "ms")
-                                      : ("Node: " + (node.error || "unknown")) }
-                    LogosText { textFormat: Text.PlainText; opacity: 0.85
-                                text: "Network: " + (networks.active || "?") + " — the node is stored per network." }
-                    GridLayout {
-                        columns: 2; columnSpacing: 10; rowSpacing: 6
-                        Layout.fillWidth: true
-                        enabled: root.ready
-
-                        LogosText { text: "Address"; opacity: 0.8 }
-                        TextField { id: ndHost; objectName: "nodeHostField"; Layout.fillWidth: true
-                                    placeholderText: "http://host:port, e.g. http://node2.monerodevs.org:38089"
-                                    text: root.nodeCfg.url || "" }
-                        LogosText { text: "Daemon username"; opacity: 0.8 }
-                        TextField { id: ndUser; objectName: "nodeUserField"; Layout.fillWidth: true
-                                    placeholderText: "optional"; text: root.nodeCfg.username || "" }
-                        LogosText { text: "Daemon password"; opacity: 0.8 }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            TextField { id: ndPass; objectName: "nodePasswordField"; Layout.fillWidth: true
-                                        echoMode: TextInput.Password
-                                        Component.onCompleted: passwordMaskDelay = 0
-                                        // The armed Clear has to be VISIBLE. It used to be a
-                                        // root-scoped boolean with nothing on screen saying so.
-                                        placeholderText: root.clearNodePassword ? "will be CLEARED when you save"
-                                                         : (root.nodeCfg.hasPassword ? "unchanged — type to replace" : "optional") }
-                            LogosButton { visible: !!root.nodeCfg.hasPassword; text: "Clear stored"
-                                          onClicked: { ndPass.text = ""; root.clearNodePassword = true } }
-                        }
-                        LogosText { text: "Proxy"; opacity: 0.8 }
-                        TextField { id: ndProxy; objectName: "nodeProxyField"; Layout.fillWidth: true
-                                    placeholderText: "socks5h://127.0.0.1:9050 (empty for none)"
-                                    text: root.nodeCfg.proxy || "" }
-                        LogosText { text: ""; opacity: 0 }
-                        // LogosCheckbox, not CheckBox: the raw control colours its own label, and
-                        // under the dark theme that is near-black on near-black. LogosText is the
-                        // rule everywhere else in this view; these two were the exception.
-                        LogosCheckbox { id: ndProxyReq; objectName: "nodeProxyRequiredBox"; text: "Require the proxy (refuse to connect without it)"
-                                        checked: !!root.nodeCfg.proxyRequired }
-                        LogosText { text: ""; opacity: 0 }
-                        LogosCheckbox { id: ndTrusted; objectName: "nodeTrustedBox"; text: "Trusted daemon"
-                                        checked: !!root.nodeCfg.trusted }
-                    }
-                    RowLayout {
-                        LogosButton {
-                            objectName: "saveNodeButton"; text: "Save node"
-                            // Empty means the form holds no other network's config — a device
-                            // with nothing stored yet, which must still be able to save. Only a
-                            // form still holding a DIFFERENT network's daemon is refused.
-                            // `busy` is a wallet lifecycle job in flight — open, close, create,
-                            // restore, change password. The backend refuses a node write for the
-                            // whole of one, and offering a button that cannot work is how the
-                            // password-wipe above became reachable.
-                            enabled: root.ready && !root.busy && ndHost.text !== ""
-                                     && (root.nodeFormNetwork === "" || root.nodeFormNetwork === root.activeNetwork)
-                            onClicked: {
-                                var cfg = { url: ndHost.text.trim(),
-                                            username: ndUser.text.trim(),
-                                            proxy: ndProxy.text.trim(),
-                                            proxyRequired: ndProxyReq.checked,
-                                            trusted: ndTrusted.checked }
-                                // Omitting password KEEPS the stored one; "" clears it.
-                                if (ndPass.text !== "") cfg.password = ndPass.text
-                                else if (root.clearNodePassword) cfg.password = ""
-                                backend.saveNodeConfig(JSON.stringify(cfg))
-                                // Do NOT clear the fields here. saveNodeConfig is refused while a
-                                // wallet is open or opening, and wiping the typed password before
-                                // knowing the write landed is how a retry ends up sending the new
-                                // host with no password — silently rebinding the OLD daemon's
-                                // credential to it. The form is cleared by resetNodeForm() when
-                                // the stored config actually changes, which only a save that
-                                // landed can do.
-                                root.nodeSavePending = true
+                            LogosButton {
+                                text: "Open"
+                                enabled: root.ready && !root.busy
+                                onClicked: { openNameField.text = modelData.name; openWalletSheet.open() }
                             }
                         }
-                        LogosButton { text: "Revert"; enabled: root.ready; onClicked: root.resetNodeForm() }
                     }
-                    Item { Layout.fillHeight: true }
                 }
             }
         }
 
         // ================= A WALLET IS OPEN =================
-        TabBar {
+        LogosTabBar {
             id: tabs; visible: root.walletOpen; Layout.fillWidth: true
-            currentIndex: root.page; onCurrentIndexChanged: root.page = currentIndex
-            TabButton { text: "Home" } TabButton { text: "Send" } TabButton { text: "Receive" } TabButton { text: "Activity" } TabButton { text: "Settings" }
+            // NOT `currentIndex: root.page`. TabBar assigns currentIndex itself on a click,
+            // which breaks a declarative binding for good — after the first click the pane
+            // still followed selectTab while the highlight stayed behind. The strip notifies,
+            // selectTab assigns both. No loop: assigning an unchanged index emits nothing.
+            onCurrentIndexChanged: root.selectTab(currentIndex)
+            LogosTabButton { text: "Home" }
+            LogosTabButton { text: "Send" }
+            LogosTabButton { text: "Receive" }
+            LogosTabButton { text: "Activity" }
+            LogosTabButton { text: "Settings" }
         }
 
         StackLayout {
@@ -505,9 +405,9 @@ Item {
                 LogosText { textFormat: Text.PlainText; text: "Wallet: " + (status.wallet || "") }
                 LogosText { objectName: "balanceText"; font.pixelSize: 28; textFormat: Text.PlainText
                             text: root.balancesRead ? (balances.balanceXmr + " XMR") : "— XMR" }
-                LogosText { objectName: "unlockedText"; textFormat: Text.PlainText; opacity: 0.8
+                LogosText { objectName: "unlockedText"; textFormat: Text.PlainText; color: Theme.palette.textSecondary
                             text: root.balancesRead ? ("Unlocked: " + balances.unlockedXmr + " XMR") : "Unlocked: —" }
-                LogosText { visible: root.balancesRead && balances.balance !== balances.unlocked; opacity: 0.7
+                LogosText { visible: root.balancesRead && balances.balance !== balances.unlocked; color: Theme.palette.textTertiary
                             text: "Incoming funds unlock after 10 confirmations (~20 min)." }
                 LogosButton { text: "Refresh"; onClicked: backend.clearAndRefresh() }
             }
@@ -516,21 +416,40 @@ Item {
             ColumnLayout {
                 spacing: 8
                 LogosText { visible: root.viewOnly; text: "This is a view-only wallet; it cannot spend." }
-                TextField { id: sendAddr; objectName: "sendAddressField"; placeholderText: "Destination address"; Layout.fillWidth: true; enabled: !root.viewOnly && !root.sendOpen }
-                TextField { id: sendAmt; objectName: "sendAmountField"; placeholderText: "Amount (XMR)"; Layout.fillWidth: true; enabled: !root.viewOnly && !root.sendOpen
+                LogosTextField { id: sendAddr; objectName: "sendAddressField"; placeholderText: "Destination address"; Layout.fillWidth: true; enabled: !root.viewOnly && !root.sendOpen }
+                LogosTextField { id: sendAmt; objectName: "sendAmountField"; placeholderText: "Amount (XMR)"; Layout.fillWidth: true; enabled: !root.viewOnly && !root.sendOpen
                             validator: RegularExpressionValidator { regularExpression: /^[0-9]*\.?[0-9]{0,12}$/ } }
-                ComboBox { id: prio; model: ["Default", "Low", "Medium", "High"]; enabled: !root.sendOpen }
-                LogosText { objectName: "sendError"; visible: root.ready && backend.sendError !== ""; text: root.ready ? backend.sendError : ""; textFormat: Text.PlainText; color: "#d9534f"; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                // A segmented row, the way the EVM wallet offers its fee tiers: four options are
+                // a choice to see, not a list to open, and `variant` is what makes the current
+                // one visible. `prioIndex` is what prepareSend sends, so the mapping stays where
+                // it was — index 0..3 = Default/Low/Medium/High.
+                RowLayout {
+                    id: prio
+                    property int prioIndex: 0
+                    spacing: Theme.spacing.tiny
+                    Repeater {
+                        model: ["Default", "Low", "Medium", "High"]
+                        LogosButton {
+                            objectName: "priority" + modelData
+                            text: modelData
+                            enabled: !root.sendOpen
+                            variant: prio.prioIndex === index ? LogosButton.Variant.Primary
+                                                              : LogosButton.Variant.Secondary
+                            onClicked: prio.prioIndex = index
+                        }
+                    }
+                }
+                LogosText { objectName: "sendError"; visible: root.ready && backend.sendError !== ""; text: root.ready ? backend.sendError : ""; textFormat: Text.PlainText; color: Theme.palette.error; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 LogosButton {
                     objectName: "reviewButton"; text: "Review"
                     enabled: root.ready && !root.viewOnly && !root.sendOpen && sendAddr.text !== "" && sendAmt.text !== "" && sendAmt.text !== "."
-                    onClicked: backend.prepareSend(JSON.stringify({ address: sendAddr.text, amountXmr: sendAmt.text, priority: prio.currentIndex }))
+                    onClicked: backend.prepareSend(JSON.stringify({ address: sendAddr.text, amountXmr: sendAmt.text, priority: prio.prioIndex }))
                 }
                 // The review sheet. What it governs is BROADCAST: the engine signed at build.
                 Rectangle {
                     visible: root.sendOpen
                     Layout.fillWidth: true; implicitHeight: revCol.implicitHeight + 24; radius: 6
-                    color: Theme.palette.surface !== undefined ? Theme.palette.surface : "#222"
+                    color: Theme.palette.surface
                     ColumnLayout {
                         id: revCol; anchors.fill: parent; anchors.margins: 12; spacing: 4
                         LogosText { objectName: "sendState"; textFormat: Text.PlainText; text: "Status: " + (send.state || "") }
@@ -567,13 +486,16 @@ Item {
                                   enabled: !!root.selectedAddress
                                   onClicked: root.copyText("Address", root.selectedAddress) }
                 }
-                LogosText { objectName: "copiedNote"; visible: root.copied !== ""; opacity: 0.8
+                LogosText { objectName: "copiedNote"; visible: root.copied !== ""; color: Theme.palette.textSecondary
                             textFormat: Text.PlainText; text: root.copied + " copied to the clipboard" }
 
                 RowLayout {
                     spacing: 12
                     // Plain rectangles, one per run of dark modules: the sandbox refuses every URL
                     // import (data: URIs included) and a Canvas never receives paint() in this host.
+                    // The only two literal colours left in this file, and they must stay literal:
+                    // a QR is a contrast target, not a themed surface, and a palette white on a
+                    // palette black is a scanner failure waiting for a theme change.
                     Rectangle {
                         id: qrBox
                         objectName: "qrBox"
@@ -595,9 +517,9 @@ Item {
                     ColumnLayout {
                         Layout.alignment: Qt.AlignTop
                         spacing: 6
-                        LogosText { text: "Amount to receive (XMR)"; opacity: 0.9 }
+                        LogosText { text: "Amount to receive (XMR)"; color: Theme.palette.textSecondary }
                         RowLayout {
-                            TextField {
+                            LogosTextField {
                                 id: wantAmt; objectName: "receiveAmountField"; placeholderText: "optional"
                                 Layout.preferredWidth: 200
                                 validator: RegularExpressionValidator { regularExpression: /^[0-9]*\.?[0-9]{0,12}$/ }
@@ -605,7 +527,7 @@ Item {
                             }
                             LogosButton { text: "Clear"; visible: wantAmt.text !== ""; onClicked: wantAmt.text = "" }
                         }
-                        LogosText { text: "Payment URL"; opacity: 0.9 }
+                        LogosText { text: "Payment URL"; color: Theme.palette.textSecondary }
                         LogosText { objectName: "receiveUriText"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere
                                     Layout.preferredWidth: 420; font.pixelSize: 11
                                     text: root.ready ? (backend.receiveUri || "—") : "—" }
@@ -617,7 +539,7 @@ Item {
 
                 LogosText { text: "Addresses"; font.pixelSize: 15 }
                 RowLayout {
-                    TextField { id: subLabel; objectName: "newAddressLabelField"; placeholderText: "Label for a new address"; Layout.fillWidth: true }
+                    LogosTextField { id: subLabel; objectName: "newAddressLabelField"; placeholderText: "Label for a new address"; Layout.fillWidth: true }
                     LogosButton { objectName: "createAddressButton"; text: "Create new address"
                                   onClicked: { backend.createSubaddress(subLabel.text); subLabel.text = "" } }
                 }
@@ -628,7 +550,7 @@ Item {
                     delegate: Rectangle {
                         width: ListView.view.width
                         implicitHeight: subRow.implicitHeight + 10
-                        color: index === root.selectedIndex ? (Theme.palette.surface !== undefined ? Theme.palette.surface : "#242424") : "transparent"
+                        color: index === root.selectedIndex ? Theme.palette.surface : "transparent"
                         radius: 4
                         MouseArea { anchors.fill: parent; onClicked: backend.selectSubaddress(index) }
                         RowLayout {
@@ -637,7 +559,7 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.leftMargin: 6; anchors.rightMargin: 6
                             spacing: 8
-                            LogosText { textFormat: Text.PlainText; font.pixelSize: 11; opacity: 0.7
+                            LogosText { textFormat: Text.PlainText; font.pixelSize: 11; color: Theme.palette.textTertiary
                                         text: "#" + modelData.index + (index === root.selectedIndex ? "  ●" : "") }
                             LogosText { textFormat: Text.PlainText; font.pixelSize: 11
                                         Layout.preferredWidth: 140; elide: Text.ElideRight
@@ -654,11 +576,11 @@ Item {
                     objectName: "labelEditor"
                     visible: root.labelIndex >= 0
                     Layout.fillWidth: true; implicitHeight: labRow.implicitHeight + 20; radius: 6
-                    color: Theme.palette.surface !== undefined ? Theme.palette.surface : "#222"
+                    color: Theme.palette.surface
                     RowLayout {
                         id: labRow; anchors.fill: parent; anchors.margins: 10; spacing: 8
                         LogosText { textFormat: Text.PlainText; text: "Label for #" + root.labelIndex }
-                        TextField { objectName: "labelField"; text: root.labelDraft; Layout.fillWidth: true
+                        LogosTextField { objectName: "labelField"; text: root.labelDraft; Layout.fillWidth: true
                                     onTextChanged: root.labelDraft = text }
                         LogosButton { objectName: "saveLabelButton"; text: "Save"
                                       onClicked: { backend.setSubaddressLabel(root.labelIndex, root.labelDraft); root.labelIndex = -1 } }
@@ -674,7 +596,7 @@ Item {
             ColumnLayout {
                 LogosText { objectName: "historyEmpty"; visible: root.historyRead && root.history.length === 0; text: "No transactions yet." }
                 LogosText { visible: !root.historyRead; text: "—" }
-                LogosText { objectName: "copiedNoteActivity"; visible: root.copied !== ""; opacity: 0.8
+                LogosText { objectName: "copiedNoteActivity"; visible: root.copied !== ""; color: Theme.palette.textSecondary
                             textFormat: Text.PlainText; text: root.copied + " copied to the clipboard" }
                 ListView {
                     objectName: "historyList"
@@ -687,7 +609,7 @@ Item {
                         implicitHeight: txCol.implicitHeight + 12
                         radius: 4
                         readonly property bool open: root.openTx === modelData.txid
-                        color: open ? (Theme.palette.surface !== undefined ? Theme.palette.surface : "#242424") : "transparent"
+                        color: open ? Theme.palette.surface : "transparent"
                         ColumnLayout {
                             id: txCol
                             anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
@@ -697,14 +619,14 @@ Item {
                                 Layout.fillWidth: true
                                 LogosText { textFormat: Text.PlainText
                                             text: (modelData.direction === "in" ? "+" : "−") + modelData.amountXmr + " XMR" }
-                                LogosText { textFormat: Text.PlainText; opacity: 0.7
+                                LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary
                                             text: modelData.pending ? "pending"
                                                   : (modelData.failed ? "failed"
                                                   : (modelData.confirmations + " conf" + (modelData.confirmations < 10 ? " (locked)" : ""))) }
-                                LogosText { textFormat: Text.PlainText; opacity: 0.6; font.pixelSize: 11
+                                LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary; font.pixelSize: 11
                                             text: root.whenOf(modelData.timestamp) }
                                 Item { Layout.fillWidth: true }
-                                LogosText { textFormat: Text.PlainText; opacity: 0.6; font.pixelSize: 10
+                                LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary; font.pixelSize: 10
                                             text: root.shortId(modelData.txid) }
                                 LogosButton { text: txRow.open ? "Hide" : "Details"
                                               onClicked: root.openTx = (root.openTx === modelData.txid ? "" : modelData.txid) }
@@ -713,24 +635,24 @@ Item {
                                 visible: txRow.open
                                 columns: 2; columnSpacing: 14; rowSpacing: 3
                                 Layout.fillWidth: true
-                                LogosText { text: "Date"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { text: "Date"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: root.whenOf(modelData.timestamp) }
-                                LogosText { text: "Amount"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { text: "Amount"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: modelData.amountXmr + " XMR" }
-                                LogosText { text: "Fee"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { text: "Fee"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11
                                             text: modelData.direction === "in" ? "—  (paid by the sender)" : modelData.feeXmr + " XMR" }
-                                LogosText { text: "Confirmations"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { text: "Confirmations"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11
                                             text: modelData.pending ? "0 (in the pool)" : String(modelData.confirmations) }
-                                LogosText { text: "Blockheight"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { text: "Blockheight"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11
                                             text: modelData.height ? String(modelData.height) : "—" }
-                                LogosText { text: "Payment ID"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { text: "Payment ID"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: modelData.paymentId || "—" }
-                                LogosText { text: "Description"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { text: "Description"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: modelData.description || "—" }
-                                LogosText { text: "Sent to"; opacity: 0.7; font.pixelSize: 11
+                                LogosText { text: "Sent to"; color: Theme.palette.textTertiary; font.pixelSize: 11
                                             visible: modelData.direction !== "in" }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11; wrapMode: Text.WrapAnywhere
                                             Layout.fillWidth: true
@@ -739,12 +661,12 @@ Item {
                                             text: (modelData.destinations && modelData.destinations.length)
                                                   ? modelData.destinations.map(function (d) { return d.address }).join("\n")
                                                   : "not recorded by the wallet" }
-                                LogosText { text: "Received on"; opacity: 0.7; font.pixelSize: 11
+                                LogosText { text: "Received on"; color: Theme.palette.textTertiary; font.pixelSize: 11
                                             visible: modelData.direction === "in" }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11
                                             visible: modelData.direction === "in"
                                             text: modelData.subaddrIndex ? ("subaddress #" + modelData.subaddrIndex) : "—" }
-                                LogosText { text: "Transaction ID"; opacity: 0.7; font.pixelSize: 11 }
+                                LogosText { text: "Transaction ID"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 RowLayout {
                                     Layout.fillWidth: true
                                     LogosText { objectName: "txidText"; textFormat: Text.PlainText; font.pixelSize: 11
@@ -765,22 +687,20 @@ Item {
                 ColumnLayout {
                     width: parent.width
                     spacing: 8
+                    // Closing lives in the chrome, always visible while a wallet is open, rather
+                    // than four clicks into this tab.
                     LogosText { text: "Wallet"; font.pixelSize: 16 }
+                    LogosText { text: "Change wallet password"; color: Theme.palette.textSecondary }
                     RowLayout {
-                        LogosButton { objectName: "closeButton"; text: "Close this wallet"; enabled: !root.busy; onClicked: { root.hideSecret(); backend.closeWallet() } }
-                    }
-
-                    LogosText { text: "Change wallet password"; opacity: 0.9 }
-                    RowLayout {
-                        TextField { id: oldPw; objectName: "oldPasswordField"; placeholderText: "Current password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
-                        TextField { id: newPw; objectName: "newPasswordField"; placeholderText: "New password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                        LogosTextField { id: oldPw; objectName: "oldPasswordField"; placeholderText: "Current password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: textInput.passwordMaskDelay = 0 }
+                        LogosTextField { id: newPw; objectName: "newPasswordField"; placeholderText: "New password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: textInput.passwordMaskDelay = 0 }
                         LogosButton { objectName: "changePasswordButton"; text: "Change"; enabled: !root.busy && oldPw.text !== "" && newPw.text !== ""
                                       onClicked: { backend.changePassword(oldPw.text, newPw.text); oldPw.text = ""; newPw.text = "" } }
                     }
 
-                    LogosText { text: "Show seed & keys"; opacity: 0.9 }
+                    LogosText { text: "Show seed & keys"; color: Theme.palette.textSecondary }
                     RowLayout {
-                        TextField { id: revealPw; objectName: "revealPasswordField"; placeholderText: "Password to reveal"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
+                        LogosTextField { id: revealPw; objectName: "revealPasswordField"; placeholderText: "Password to reveal"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: textInput.passwordMaskDelay = 0 }
                         LogosButton {
                             objectName: "revealSeedButton"; text: "Show seed"; enabled: revealPw.text !== "" && !root.viewOnly
                             onClicked: {
@@ -801,14 +721,14 @@ Item {
                     Rectangle {
                         visible: root.shownSecret !== ""
                         Layout.fillWidth: true; implicitHeight: secretCol.implicitHeight + 24
-                        color: Theme.palette.surface !== undefined ? Theme.palette.surface : "#222"
+                        color: Theme.palette.surface
                         radius: 6
                         ColumnLayout {
                             id: secretCol; anchors.fill: parent; anchors.margins: 12
                             LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true
                                         text: "Your " + root.secretKind + ". DO NOT share it with anyone: it can "
                                               + (root.secretKind === "mnemonic seed" ? "spend" : "see") + " your funds. Store a copy securely; it is not kept here." }
-                            TextEdit { objectName: "secretText"; text: root.shownSecret; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; Layout.fillWidth: true; color: Theme.palette.text !== undefined ? Theme.palette.text : "#eee" }
+                            TextEdit { objectName: "secretText"; text: root.shownSecret; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; Layout.fillWidth: true; color: Theme.palette.text }
                             RowLayout {
                                 LogosButton { text: "Copy"; onClicked: root.copyText(root.secretKind === "mnemonic seed" ? "Seed" : "View key", root.shownSecret) }
                                 LogosButton { text: "Hide"; onClicked: root.hideSecret() }
@@ -823,23 +743,232 @@ Item {
                     // so a form here is visible exactly when it cannot be used. It was, and the
                     // node was unchangeable from the app.
                     LogosText { text: "Node"; font.pixelSize: 16 }
-                    LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.85
+                    LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
                                 text: node.reachable === true
                                       ? ("Reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") + " · " + (node.rttMs || 0) + "ms")
                                       : ("Node: " + (node.error || "unknown")) }
-                    LogosText { objectName: "settingsNodeUrl"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true; opacity: 0.85
+                    LogosText { objectName: "settingsNodeUrl"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true; color: Theme.palette.textSecondary
                                 text: "Address: " + (root.nodeCfg.url || "—") }
-                    LogosText { textFormat: Text.PlainText; opacity: 0.85
+                    LogosText { textFormat: Text.PlainText; color: Theme.palette.textSecondary
                                 text: "Network: " + (status.activeNetwork || "") }
-                    LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.7
+                    LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textTertiary
                                 text: "Close this wallet to change either one: the engine binds its daemon when a wallet "
                                       + "opens. The node form and the network picker are both on the Wallets screen." }
 
-                    LogosText { textFormat: Text.PlainText; opacity: 0.7
+                    LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary
                                 text: "Engine: monero_c " + (status.libraryVersion || "") + " (LGPL-3.0, dynamically linked)" }
                     Item { Layout.fillHeight: true }
                 }
             }
         }
     }
+
+    // ── the wallet forms, as modal sheets ──────────────────────────────────────────────────
+    // Declared outside the layout: a Dialog inside a ColumnLayout is laid out like any other
+    // item and reserves space even while closed. Every title is a literal — LogosDialog renders
+    // `title` as AutoText and a wallet name is user input.
+    LogosDialog {
+        id: openWalletSheet
+        objectName: "openWalletSheet"
+        title: "Open a wallet"
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 40, 620)
+        onClosed: openPw.text = ""
+        contentItem: ColumnLayout {
+            spacing: 8
+            LogosText { visible: root.unlockRequestId !== ""; wrapMode: Text.Wrap; Layout.fillWidth: true
+                        text: "Another app asked to unlock this wallet." }
+            LogosTextField { id: openNameField; objectName: "openNameField"; placeholderText: "Wallet name"; Layout.fillWidth: true }
+            LogosTextField {
+                id: openPw; objectName: "openPasswordField"; placeholderText: "Wallet password"
+                echoMode: TextInput.Password; Layout.fillWidth: true
+                // `accepted` belongs to the inner TextInput: LogosTextField is a Control
+                // wrapping one, not a TextField, and assigning onAccepted on the control
+                // is a COMPILE error — which takes the whole view down, not just this
+                // field. Same reason passwordMaskDelay is set through `textInput`.
+                Component.onCompleted: textInput.passwordMaskDelay = 0
+                Connections {
+                    target: openPw.textInput
+                    function onAccepted() { if (openButton.enabled) openButton.clicked() }
+                }
+            }
+            LogosButton {
+                id: openButton
+                objectName: "openButton"; text: root.busy ? "Opening…" : "Open"
+                enabled: root.ready && !root.busy && openNameField.text !== ""
+                onClicked: { backend.openWallet(openNameField.text, openPw.text); openPw.text = ""; openWalletSheet.close() }
+            }
+        }
+    }
+
+    LogosDialog {
+        id: createSheet
+        objectName: "createWalletSheet"
+        title: "Create a wallet"
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 40, 620)
+        onOpened: { cName.text = ""; cPw.text = ""; cPw2.text = "" }
+        onClosed: { cPw.text = ""; cPw2.text = "" }
+        contentItem: ColumnLayout {
+            spacing: 8
+            LogosTextField { id: cName; objectName: "createNameField"; placeholderText: "Wallet name"; Layout.fillWidth: true }
+            LogosTextField { id: cLabel; placeholderText: "Label (optional)"; Layout.fillWidth: true }
+            LogosTextField { id: cPw; objectName: "createPasswordField"; placeholderText: "Add a strong password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: textInput.passwordMaskDelay = 0 }
+            LogosTextField { id: cPw2; placeholderText: "Repeat password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: textInput.passwordMaskDelay = 0 }
+            LogosText { visible: cPw.text !== cPw2.text && cPw2.text !== ""; text: "Passwords do not match" }
+            LogosButton {
+                objectName: "createButton"; text: root.busy ? "Creating…" : "Create wallet"
+                enabled: root.ready && !root.busy && cName.text !== "" && cPw.text !== "" && cPw.text === cPw2.text
+                onClicked: { backend.createWallet(cName.text, cPw.text, cLabel.text); cPw.text = ""; cPw2.text = ""; createSheet.close() }
+            }
+            LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
+                        text: "The wallet opens once it is created. Write down your mnemonic seed and keep it safe — "
+                              + "Settings › Show seed & keys, behind your password." }
+        }
+    }
+
+    LogosDialog {
+        id: seedSheet
+        objectName: "restoreSeedSheet"
+        title: "Restore from a recovery phrase"
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 40, 620)
+        onClosed: { rSeed.text = ""; rPw.text = "" }
+        contentItem: ColumnLayout {
+            spacing: 8
+            LogosTextField { id: rName; placeholderText: "Wallet name"; Layout.fillWidth: true }
+            // LogosTextArea sets placeholderTextColor from the theme; the raw TextArea
+            // left the 25-word prompt unreadable on the dark background.
+            LogosTextArea { id: rSeed; objectName: "seedField"; placeholderText: "25-word mnemonic seed"; Layout.fillWidth: true; Layout.preferredHeight: 90 }
+            LogosTextField { id: rHeight; placeholderText: "Restore height (block number; 0 scans from genesis — hours)"; Layout.fillWidth: true; validator: IntValidator { bottom: 0 } }
+            LogosTextField { id: rPw; placeholderText: "New wallet password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: textInput.passwordMaskDelay = 0 }
+            LogosButton {
+                objectName: "restoreSeedButton"
+                text: root.busy ? "Restoring…" : "Restore"
+                enabled: root.ready && !root.busy && rName.text !== "" && rSeed.text.trim().split(/\s+/).length === 25 && rPw.text !== ""
+                onClicked: { backend.restoreFromSeed(rName.text, rPw.text, rSeed.text.trim(), parseInt(rHeight.text || "0"), ""); rSeed.text = ""; rPw.text = ""; seedSheet.close() }
+            }
+        }
+    }
+
+    LogosDialog {
+        id: keysSheet
+        objectName: "restoreKeysSheet"
+        title: "Restore from keys"
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 40, 620)
+        onClosed: { kView.text = ""; kSpend.text = ""; kPw.text = "" }
+        contentItem: ColumnLayout {
+            spacing: 8
+            LogosTextField { id: kName; placeholderText: "Wallet name"; Layout.fillWidth: true }
+            LogosTextField { id: kAddr; placeholderText: "Primary address"; Layout.fillWidth: true }
+            LogosTextField { id: kView; placeholderText: "Private view key"; Layout.fillWidth: true }
+            LogosTextField { id: kSpend; placeholderText: "Private spend key (leave empty for a view-only wallet)"; Layout.fillWidth: true }
+            LogosTextField { id: kHeight; placeholderText: "Restore height"; Layout.fillWidth: true; validator: IntValidator { bottom: 0 } }
+            LogosTextField { id: kPw; placeholderText: "New wallet password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: textInput.passwordMaskDelay = 0 }
+            LogosButton {
+                objectName: "restoreKeysButton"
+                text: root.busy ? "Restoring…" : (kSpend.text === "" ? "Restore view-only wallet" : "Restore wallet")
+                enabled: root.ready && !root.busy && kName.text !== "" && kAddr.text !== "" && kView.text !== "" && kPw.text !== ""
+                onClicked: { backend.restoreFromKeys(kName.text, kPw.text, kAddr.text, kView.text, kSpend.text, parseInt(kHeight.text || "0"), ""); kView.text = ""; kSpend.text = ""; kPw.text = ""; keysSheet.close() }
+            }
+        }
+    }
+
+    LogosDialog {
+        id: nodeSheet
+        objectName: "nodeSheet"
+        title: "Remote node"
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 40, 720)
+        onOpened: root.resetNodeForm()
+        contentItem: ColumnLayout {
+            // Named so a test can assert REACHABILITY, not just that the fields exist:
+            // findByProperty walks the whole tree ignoring visibility, so an assertion on
+            // the field alone passes even when this screen is hidden behind an open
+            // wallet — which is the exact bug this page was moved here to fix.
+            objectName: "walletsNodePage"
+            spacing: 8
+            LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
+                        text: node.reachable === true
+                              ? ("Reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") + " · " + (node.rttMs || 0) + "ms")
+                              : ("Node: " + (node.error || "unknown")) }
+            LogosText { textFormat: Text.PlainText; color: Theme.palette.textSecondary
+                        text: "Network: " + (networks.active || "?") + " — the node is stored per network." }
+            GridLayout {
+                columns: 2; columnSpacing: 10; rowSpacing: 6
+                Layout.fillWidth: true
+                enabled: root.ready
+
+                LogosText { text: "Address"; color: Theme.palette.textSecondary }
+                LogosTextField { id: ndHost; objectName: "nodeHostField"; Layout.fillWidth: true
+                            placeholderText: "http://host:port, e.g. http://node2.monerodevs.org:38089"
+                            text: root.nodeCfg.url || "" }
+                LogosText { text: "Daemon username"; color: Theme.palette.textSecondary }
+                LogosTextField { id: ndUser; objectName: "nodeUserField"; Layout.fillWidth: true
+                            placeholderText: "optional"; text: root.nodeCfg.username || "" }
+                LogosText { text: "Daemon password"; color: Theme.palette.textSecondary }
+                RowLayout {
+                    Layout.fillWidth: true
+                    LogosTextField { id: ndPass; objectName: "nodePasswordField"; Layout.fillWidth: true
+                                echoMode: TextInput.Password
+                                Component.onCompleted: textInput.passwordMaskDelay = 0
+                                // The armed Clear has to be VISIBLE. It used to be a
+                                // root-scoped boolean with nothing on screen saying so.
+                                placeholderText: root.clearNodePassword ? "will be CLEARED when you save"
+                                                 : (root.nodeCfg.hasPassword ? "unchanged — type to replace" : "optional") }
+                    LogosButton { visible: !!root.nodeCfg.hasPassword; text: "Clear stored"
+                                  onClicked: { ndPass.text = ""; root.clearNodePassword = true } }
+                }
+                LogosText { text: "Proxy"; color: Theme.palette.textSecondary }
+                LogosTextField { id: ndProxy; objectName: "nodeProxyField"; Layout.fillWidth: true
+                            placeholderText: "socks5h://127.0.0.1:9050 (empty for none)"
+                            text: root.nodeCfg.proxy || "" }
+                LogosText { text: ""; opacity: 0 }
+                // LogosCheckbox, not CheckBox: the raw control colours its own label, and
+                // under the dark theme that is near-black on near-black. LogosText is the
+                // rule everywhere else in this view; these two were the exception.
+                LogosCheckbox { id: ndProxyReq; objectName: "nodeProxyRequiredBox"; text: "Require the proxy (refuse to connect without it)"
+                                checked: !!root.nodeCfg.proxyRequired }
+                LogosText { text: ""; opacity: 0 }
+                LogosCheckbox { id: ndTrusted; objectName: "nodeTrustedBox"; text: "Trusted daemon"
+                                checked: !!root.nodeCfg.trusted }
+            }
+            RowLayout {
+                LogosButton {
+                    objectName: "saveNodeButton"; text: "Save node"
+                    // Empty means the form holds no other network's config — a device
+                    // with nothing stored yet, which must still be able to save. Only a
+                    // form still holding a DIFFERENT network's daemon is refused.
+                    // `busy` is a wallet lifecycle job in flight — open, close, create,
+                    // restore, change password. The backend refuses a node write for the
+                    // whole of one, and offering a button that cannot work is how the
+                    // password-wipe above became reachable.
+                    enabled: root.ready && !root.busy && ndHost.text !== ""
+                             && (root.nodeFormNetwork === "" || root.nodeFormNetwork === root.activeNetwork)
+                    onClicked: {
+                        var cfg = { url: ndHost.text.trim(),
+                                    username: ndUser.text.trim(),
+                                    proxy: ndProxy.text.trim(),
+                                    proxyRequired: ndProxyReq.checked,
+                                    trusted: ndTrusted.checked }
+                        // Omitting password KEEPS the stored one; "" clears it.
+                        if (ndPass.text !== "") cfg.password = ndPass.text
+                        else if (root.clearNodePassword) cfg.password = ""
+                        backend.saveNodeConfig(JSON.stringify(cfg))
+                        // Do NOT clear the fields here. saveNodeConfig is refused while a
+                        // wallet is open or opening, and wiping the typed password before
+                        // knowing the write landed is how a retry ends up sending the new
+                        // host with no password — silently rebinding the OLD daemon's
+                        // credential to it. The form is cleared by resetNodeForm() when
+                        // the stored config actually changes, which only a save that
+                        // landed can do.
+                        root.nodeSavePending = true
+                    }
+                }
+                LogosButton { text: "Revert"; enabled: root.ready; onClicked: root.resetNodeForm() }
+            }
+        }
+    }
+
 }
