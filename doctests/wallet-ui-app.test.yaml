@@ -1,35 +1,52 @@
 name: monero_wallet_ui — create a stagenet wallet and receive into it, in one app
 project_name: logos-monero-wallet-ui
 
+# Every build is a flake URL rather than `path:..`: the harness runs each step in a throwaway
+# working directory, not in the checkout. CI pins {release} to the commit under test with
+# --release-for. `#install` stages ONE module, so the whole module chain is built beside it.
+#
+# The `.rep` secret-PROP tripwire lives in this repo's ci.yml, not here: it reads a source file,
+# and the checkout is not what a doctest step runs in.
+#
+# Nothing below needs a reachable daemon: a wallet is created, opened and shown, and wallet2
+# binds its node lazily, so this run does not depend on somebody else's public node being up.
+
 intro: |
   One app covers the whole flow, so one headless run can too: the wallet list renders, a stagenet
   wallet is created through the form, the wallet opens and starts syncing, and the Receive tab
-  shows its address and a QR. The password is typed into the only surface that takes one — and its
-  `.rep` still may not name a secret in a PROP, which is what CI asserts.
+  shows its address and a QR. The password is typed into the only surface that takes one.
 
 sections:
   - title: "Build the app, the host and the module tree"
     steps:
-      - run: |
+      - title: "Build every module the app loads, and stage them into one tree"
+        run: |
+          set -eu
           nix build 'github:logos-co/logos-standalone-app' --no-write-lock-file -o result-app
           nix build 'github:logos-co/logos-qt-mcp' --no-write-lock-file -o result-mcp
           nix build 'github:logos-co/logos-capability-module#install' --no-write-lock-file -o result-capability
-          nix build 'path:..#install' -o result-wallet
+          nix build 'github:logos-co/logos-monero-node-module{release}#install' --no-write-lock-file -o result-node
+          nix build 'github:logos-co/logos-monero-wallet-core-module{release}#install' --no-write-lock-file -o result-core
+          nix build 'github:logos-co/logos-monero-wallet-backend{release}#install' --no-write-lock-file -o result-backend
+          nix build 'github:logos-co/logos-monero-wallet-ui{release}#install' --no-write-lock-file -o result-wallet
           mkdir -p tree/modules tree/plugins
-          cp -r result-capability/modules/* tree/modules/
-          cp -r result-wallet/modules/*     tree/modules/
-          cp -r result-wallet/plugins/*     tree/plugins/
+          cp -rL result-capability/modules/* result-node/modules/* \
+                 result-core/modules/* result-backend/modules/* tree/modules/
+          cp -rL result-wallet/plugins/* tree/plugins/
+          chmod -R u+w tree
           ls tree/modules tree/plugins
-        expect_contains: ["monero_wallet_ui", "monero_wallet_backend"]
-      - title: "No secret may be declared as a PROP (a PROP is cached and broadcast to every replica)"
-        # scripts/check-rep-passwords.py in logos-workspace OWNS this rule; this is a local
-        # tripwire, not a second copy of it. Deliberately a case-insensitive SUBSTRING match with
-        # no word boundaries, which is strictly WIDER than any \\b-anchored spelling — so it cannot
-        # silently drift weaker than the real gate the way a copied regex already did once
-        # (\\bpassword\\b never matched newPassword).
-        run: |
-          ! grep -niE '^[[:space:]]*PROP[[:space:]]*\(.*(password|passphrase|mnemonic|seed|privkey|private_key|spendkey|viewkey|secretkey)' src/monero_wallet_ui.rep && echo NO_SECRET_PROP
-        expect_contains: ["NO_SECRET_PROP"]
+        code_block: |
+          nix build 'github:logos-co/logos-standalone-app' -o result-app
+          nix build 'github:logos-co/logos-qt-mcp' -o result-mcp
+          nix build 'github:logos-co/logos-capability-module#install' -o result-capability
+          for m in node-module wallet-core-module wallet-backend wallet-ui; do
+            nix build "github:logos-co/logos-monero-$m#install" -o "result-$m"
+          done
+          mkdir -p tree/modules tree/plugins
+          cp -rL result-*/modules/* tree/modules/
+          cp -rL result-wallet-ui/plugins/* tree/plugins/
+          chmod -R u+w tree
+        expect_contains: ["monero_wallet_ui", "monero_wallet_backend", "monero_wallet_core_module"]
 
   - title: "Drive the wallet"
     steps:
@@ -69,8 +86,11 @@ sections:
               action: click
               target: "Create wallet"
             - name: "The wallet opens and starts syncing — same app, no hop"
+              # `wait_for` polls and matches text by EQUALITY, so the anchor has to be a string
+              # that is both stable and only true once this wallet is open. The status line and
+              # the sync chip both carry a live height and percentage, so neither can be one.
               action: wait_for
-              texts: ["Open: doctest · syncing"]
+              texts: ["Wallet: doctest"]
               timeout: 60000
               screenshot: "wallet-ui-open.png"
             - name: "Go to Receive"
@@ -79,11 +99,15 @@ sections:
               find_value: "moneroWalletRoot"
               method: "selectTab"
               args: [2]
+            - name: "Let the read poll publish the address and its QR (m_readPoll is 3s)"
+              action: sleep
+              ms: 5000
             - name: "The receive address and its QR render"
+              # `expect_property` reads the property ONCE and compares against `value:` — it does
+              # not poll and it ignores `expected:`. Hence the sleep above.
               action: expect_property
               find_by: "objectName"
               find_value: "qrBox"
               property: "visible"
-              expected: true
-              timeout: 30000
+              value: true
               screenshot: "wallet-ui-receive.png"

@@ -1,0 +1,162 @@
+name: CI
+
+# Everything this repo can assert without a shell, a host or a wallet.
+#
+# `nix build` proves nothing about QML: one bad import or one mistyped Theme token takes the
+# whole view down at runtime and says so only through qWarning. So the view is linted AND
+# constructed for real here, and the end-to-end drive lives in doctests.yml.
+#
+# The design system is not a flake input — it is static-linked into the host binary, so this
+# module declares nothing — but its SOURCE decides whether `import Logos.Controls` resolves and
+# which Theme tokens exist, so it is checked out beside the repo for the QML jobs.
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: nix build
+    # ATTIC_TOKEN_PUBLIC only exists in the public-cache environment; main jobs must opt into
+    # it to publish to the public cache.
+    environment: ${{ github.ref == 'refs/heads/main' && 'public-cache' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix and set up the shared cache
+        uses: logos-co/setup-nix-cache-action@v1
+        with:
+          attic-token-ci: ${{ secrets.ATTIC_TOKEN_CI }}
+          attic-token-public: ${{ secrets.ATTIC_TOKEN_PUBLIC }}
+
+      - name: Build plugin and package
+        run: nix build -L .#lgx
+
+  secret-prop:
+    name: no secret may be declared as a PROP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The .rep may take a secret as a SLOT argument, never as a PROP
+        # A PROP is CACHED in the replica and BROADCAST to every connected replica, so a secret
+        # in one leaks by construction; a SLOT argument or return value is point-to-point. That
+        # split is the whole reason this app may hold the wallet password at all.
+        #
+        # `scripts/check-rep-passwords.py` in logos-workspace owns the rule, and it reports this
+        # repo as SKIPPED until it is registered as a submodule there — so today this is the ONLY
+        # place the rule actually runs. Deliberately a case-insensitive SUBSTRING match with no
+        # word boundaries, which is strictly WIDER than any \b-anchored spelling: that is how the
+        # workspace copy missed `newPassword` for a while (\bpassword\b cannot match it).
+        shell: bash
+        run: |
+          set -euo pipefail
+          pat='^[[:space:]]*PROP[[:space:]]*\(.*(password|passphrase|mnemonic|seed|privkey|private_key|spendkey|viewkey|secretkey)'
+          test -f src/monero_wallet_ui.rep
+
+          # Positive control FIRST. A grep over a renamed or moved file passes by finding
+          # nothing, which is exactly what a clean surface looks like — so prove the pattern
+          # can still catch the thing it exists to catch before trusting its silence.
+          printf '    PROP(QString newPassword="" READONLY)\n' > /tmp/bad.rep
+          grep -qEi "$pat" /tmp/bad.rep \
+            || { echo "::error::the tripwire no longer detects a secret PROP"; exit 1; }
+          # ...and that it does NOT flag the SLOTs this surface is allowed to declare.
+          printf '    SLOT(QString revealSeed(QString password))\n' > /tmp/ok.rep
+          if grep -qEi "$pat" /tmp/ok.rep; then
+            echo "::error::the tripwire now refuses a permitted SLOT"; exit 1
+          fi
+
+          if grep -nEi "$pat" src/monero_wallet_ui.rep; then
+            echo "::error::a secret is declared as a PROP above — pass it as a SLOT argument, or"
+            echo "::error::return it from a SLOT and drop it after display."
+            exit 1
+          fi
+          echo "NO_SECRET_PROP"
+
+  qml:
+    name: qmllint + load
+    environment: ${{ github.ref == 'refs/heads/main' && 'public-cache' || '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: logos-monero-wallet-ui
+
+      - uses: actions/checkout@v4
+        with:
+          repository: logos-co/logos-design-system
+          path: logos-design-system
+
+      - name: Install Nix and set up the shared cache
+        uses: logos-co/setup-nix-cache-action@v1
+        with:
+          attic-token-ci: ${{ secrets.ATTIC_TOKEN_CI }}
+          attic-token-public: ${{ secrets.ATTIC_TOKEN_PUBLIC }}
+
+      - name: Gate A — static (imports, type and property names)
+        working-directory: logos-monero-wallet-ui
+        # `-W 0` fails on the first WARNING. `--unqualified` is off because `logos` is injected
+        # by the host, so this view references an identifier no static pass can resolve.
+        run: |
+          # shellcheck disable=SC2016  # the $(...) below is for the INNER bash -c, by design
+          nix shell nixpkgs#qt6.qtdeclarative -c bash -c '
+            QTQML=$(dirname $(dirname $(readlink -f $(command -v qmllint))))/lib/qt-6/qml
+            qmllint -I "$QTQML" -I ../logos-design-system/src/qml \
+                    -W 0 --unqualified disable qml/*.qml'
+
+      - name: Gate B — construct the view for real
+        working-directory: logos-monero-wallet-ui
+        run: |
+          # shellcheck disable=SC2016  # the $(...) below is for the INNER bash -c, by design
+          nix shell nixpkgs#qt6.qtdeclarative nixpkgs#qt6.qtsvg -c bash -c '
+            d=$(dirname $(dirname $(readlink -f $(command -v qml))))
+            # Basic is load-bearing: under a platform style the design system'"'"'s own
+            # contentItem overrides are REJECTED, which reads as a bug in this view. Both hosts
+            # force it; a bare `qml` does not.
+            # QT_LOGGING_TO_CONSOLE is load-bearing too, not tidiness: nixpkgs builds Qt with
+            # journald support, and Qt then sends every message there whenever stderr is not a
+            # tty — which on a runner it never is. An empty log would make every check below
+            # pass on an absence rather than on a clean load.
+            QT_LOGGING_TO_CONSOLE=1 \
+            QT_QUICK_CONTROLS_STYLE=Basic QT_QPA_PLATFORM=offscreen \
+              timeout 60 qml -I "$d/lib/qt-6/qml" -I ../logos-design-system/src/qml \
+              qml/MoneroWalletView.qml > /tmp/qml.log 2>&1
+            status=$?
+            cat /tmp/qml.log
+            # The view cannot load without saying so: `logos` is absent here and its
+            # ReferenceError is unavoidable. An empty log means the messages went somewhere
+            # else again, and every check below is then vacuous.
+            if ! grep -q "logos is not defined" /tmp/qml.log; then
+              echo "::error::no Qt output reached stderr — the checks below prove nothing"
+              exit 1
+            fi
+            # 124 IS THE PASS. The view is an Item, not a Window, so a healthy load runs the
+            # event loop until timeout kills it; qml exits 2 for a bad import and for an
+            # unknown property, and only reaches 124 when every component constructed.
+            if [ $status -ne 124 ]; then
+              echo "::error::qml exited $status (expected 124 = loaded and still running)"
+              exit 1
+            fi
+            if grep -qE "does not support customization|Cannot assign|was not found" /tmp/qml.log; then
+              echo "::error::QML component errors above"; exit 1
+            fi
+            # `logos` is the host-injected global and is absent by construction here, so its
+            # ReferenceError is the one expected line. Any OTHER name that fails to resolve at
+            # load is a typo the view would carry into the app, where it costs a whole panel
+            # and one qWarning. (The two Connections notices about onViewModuleReadyChanged /
+            # onIntentRequested are the same absence: their target IS `logos`.)
+            if grep "ReferenceError" /tmp/qml.log | grep -v "logos is not defined"; then
+              echo "::error::unexpected ReferenceError above"; exit 1
+            fi'
