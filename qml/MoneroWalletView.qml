@@ -362,7 +362,9 @@ Item {
                 ColumnLayout {
                     spacing: 8
                     TextField { id: rName; placeholderText: "Wallet name"; Layout.fillWidth: true }
-                    TextArea { id: rSeed; objectName: "seedField"; placeholderText: "25-word mnemonic seed"; Layout.fillWidth: true; Layout.preferredHeight: 90; wrapMode: TextEdit.Wrap }
+                    // LogosTextArea sets placeholderTextColor from the theme; the raw TextArea
+                    // left the 25-word prompt unreadable on the dark background.
+                    LogosTextArea { id: rSeed; objectName: "seedField"; placeholderText: "25-word mnemonic seed"; Layout.fillWidth: true; Layout.preferredHeight: 90 }
                     TextField { id: rHeight; placeholderText: "Restore height (block number; 0 scans from genesis — hours)"; Layout.fillWidth: true; validator: IntValidator { bottom: 0 } }
                     TextField { id: rPw; placeholderText: "New wallet password"; echoMode: TextInput.Password; Layout.fillWidth: true; Component.onCompleted: passwordMaskDelay = 0 }
                     LogosButton {
@@ -437,11 +439,14 @@ Item {
                                     placeholderText: "socks5h://127.0.0.1:9050 (empty for none)"
                                     text: root.nodeCfg.proxy || "" }
                         LogosText { text: ""; opacity: 0 }
-                        CheckBox { id: ndProxyReq; objectName: "nodeProxyRequiredBox"; text: "Require the proxy (refuse to connect without it)"
-                                   checked: !!root.nodeCfg.proxyRequired }
+                        // LogosCheckbox, not CheckBox: the raw control colours its own label, and
+                        // under the dark theme that is near-black on near-black. LogosText is the
+                        // rule everywhere else in this view; these two were the exception.
+                        LogosCheckbox { id: ndProxyReq; objectName: "nodeProxyRequiredBox"; text: "Require the proxy (refuse to connect without it)"
+                                        checked: !!root.nodeCfg.proxyRequired }
                         LogosText { text: ""; opacity: 0 }
-                        CheckBox { id: ndTrusted; objectName: "nodeTrustedBox"; text: "Trusted daemon"
-                                   checked: !!root.nodeCfg.trusted }
+                        LogosCheckbox { id: ndTrusted; objectName: "nodeTrustedBox"; text: "Trusted daemon"
+                                        checked: !!root.nodeCfg.trusted }
                     }
                     RowLayout {
                         LogosButton {
