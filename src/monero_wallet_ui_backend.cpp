@@ -289,10 +289,12 @@ void MoneroWalletUiBackend::pollSend() {
     if (!o.value("ok").toBool()) { setSendError(o.value("error").toString()); m_sendPoll.stop(); return; }
     setSendStatusJson(stripOk(r));
     const QString state = o.value("state").toString();
-    if (state == "failed") setSendError(o.value("error").toString());
-    if (state == "sent" || state == "failed" || state == "cancelled") {
+    if (state == "failed" || state == "unknown") setSendError(o.value("error").toString());
+    if (state == "sent" || state == "failed" || state == "cancelled" || state == "unknown") {
         m_sendPoll.stop();
-        if (state == "sent") { loadBalances(); refreshHistory(); }
+        // An unknown outcome may or may not have moved money, so refresh the same as a send:
+        // Activity is where the answer will show up.
+        if (state == "sent" || state == "unknown") { loadBalances(); refreshHistory(); }
     }
 }
 
@@ -309,10 +311,19 @@ void MoneroWalletUiBackend::confirmSend() {
 void MoneroWalletUiBackend::cancelSend() {
     const QString id = sendRequestId();
     if (id.isEmpty()) return;
-    modules().monero_wallet_backend.cancel_send(id);
+    const QString r = modules().monero_wallet_backend.cancel_send(id);
+    const QJsonObject o = parse(r);
+    if (!o.value("ok").toBool()) {
+        // The backend refuses to cancel a broadcast already in progress. Wiping the sheet here
+        // would tell the user their transaction was cancelled while it was on its way.
+        setSendError(o.value("error").toString());
+        m_sendPoll.start(kSendPollMs);
+        return;
+    }
     m_sendPoll.stop();
     setSendRequestId({});
     setSendStatusJson(QStringLiteral("{}"));
+    setSendError({});
 }
 
 bool MoneroWalletUiBackend::addressValid(QString address) {

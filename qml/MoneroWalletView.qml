@@ -188,6 +188,26 @@ Item {
 
         LogosText { objectName: "errorLine"; visible: root.ready && backend.lastError !== ""; text: root.ready ? backend.lastError : ""; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: "#d9534f" }
 
+        // A send whose outcome is unknown is reported HERE, above the tabs, not inside the Send
+        // tab: the tab space is hidden whenever the wallet is not open, and the engine dying is
+        // both what makes the outcome unknown AND what closes the wallet. Inside the sheet this
+        // banner was invisible in exactly the case it exists for.
+        Rectangle {
+            objectName: "sendUnknownBanner"
+            visible: root.ready && send.state === "unknown"
+            Layout.fillWidth: true; implicitHeight: unkCol.implicitHeight + 16; radius: 4
+            color: "#5a3d12"
+            ColumnLayout {
+                id: unkCol; anchors.fill: parent; anchors.margins: 8; spacing: 2
+                LogosText { text: "A transaction's outcome is unknown"; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.9
+                            text: send.error || "" }
+                LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.9
+                            text: "Check Activity once the wallet re-syncs, before sending again." }
+                LogosButton { objectName: "dismissUnknownButton"; text: "Dismiss"; onClicked: backend.cancelSend() }
+            }
+        }
+
         // ================= NO WALLET OPEN: the Wallets screen =================
         ColumnLayout {
             visible: root.ready && !root.walletOpen
@@ -368,22 +388,9 @@ Item {
                         LogosText { objectName: "previewAmount"; visible: !!send.preview; textFormat: Text.PlainText; text: "Amount: " + (send.preview ? send.preview.amountXmr : "") + " XMR" }
                         LogosText { objectName: "previewFee"; visible: !!send.preview; textFormat: Text.PlainText; text: "Fee: " + (send.preview ? send.preview.feeXmr : "") + " XMR" }
                         LogosText { objectName: "previewTotal"; visible: !!send.preview; textFormat: Text.PlainText; text: "Total: " + (send.preview ? send.preview.totalXmr : "") + " XMR" }
-                        LogosText { visible: send.state === "sent"; textFormat: Text.PlainText; text: "Broadcast. txid: " + (send.txids || ""); wrapMode: Text.WrapAnywhere; Layout.fillWidth: true }
-                        // The engine died mid-broadcast: neither "sent" nor "failed" is true.
-                        Rectangle {
-                            objectName: "sendUnknownBanner"
-                            visible: send.state === "unknown"
-                            Layout.fillWidth: true; implicitHeight: unkCol.implicitHeight + 16; radius: 4
-                            color: "#5a3d12"
-                            ColumnLayout {
-                                id: unkCol; anchors.fill: parent; anchors.margins: 8; spacing: 2
-                                LogosText { text: "This transaction's outcome is unknown"; wrapMode: Text.Wrap; Layout.fillWidth: true }
-                                LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.9
-                                            text: send.error || "" }
-                                LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.9
-                                            text: "Check Activity after the wallet re-syncs before sending again." }
-                            }
-                        }
+                        LogosText { visible: send.state === "sent"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
+                                    text: send.txids ? ("Broadcast. txid: " + send.txids)
+                                                     : "Broadcast. Its transaction id will appear in Activity once the wallet re-syncs." }
                         RowLayout {
                             LogosButton { objectName: "confirmSendButton"; text: "Confirm and broadcast"; visible: send.state === "previewed"; onClicked: backend.confirmSend() }
                             LogosButton {
