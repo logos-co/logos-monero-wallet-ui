@@ -12,9 +12,13 @@ project_name: logos-monero-wallet-ui
 # binds its node lazily, so this run does not depend on somebody else's public node being up.
 
 intro: |
-  One app covers the whole flow, so one headless run can too: the wallet list renders, a stagenet
-  wallet is created through the form, the wallet opens and starts syncing, and the Receive tab
-  shows its address and a QR. The password is typed into the only surface that takes one.
+  One app covers the whole flow, so one headless run can too: the wallet list renders, the node is
+  pointed somewhere, a stagenet wallet is created through the form, and the Receive tab shows its
+  address and a QR. The password is typed into the only surface that takes one.
+
+  The node is deliberately set to a dead local port, which makes the run offline and deterministic
+  and puts the wallet in the state a user is in when their public node goes down — so the run also
+  checks that the chrome admits it rather than showing a stale "Synced".
 
 sections:
   - title: "Build the app, the host and the module tree"
@@ -61,6 +65,45 @@ sections:
               texts: ["No wallet open", "No wallets on this device yet. Create one, or restore from a seed."]
               timeout: 30000
               screenshot: "wallet-ui-wallets.png"
+            - name: "The node form is REACHABLE with no wallet open — the Wallets screen owns it"
+              # The regression this exists for: the form used to live in the Settings tab, which
+              # exists only while a wallet is OPEN, while its fields were enabled only while none
+              # was. Visible exactly when unusable, so the node could not be changed from the app
+              # at all. Asserted here, before any wallet exists, because that is the state a user
+              # is in when a node goes down and they need to point somewhere else.
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "selectWalletsPage"
+              args: [5]
+            - name: "The page itself is on screen (not merely present in the tree)"
+              # `visible` propagates down from a hidden parent, so this is the half that fails if
+              # the form ever moves back behind an open wallet. findByProperty ignores visibility,
+              # so asserting the field alone would pass either way.
+              action: expect_property
+              find_by: "objectName"
+              find_value: "walletsNodePage"
+              property: "visible"
+              value: true
+            - name: "...and its address field accepts input"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "nodeHostField"
+              property: "enabled"
+              value: true
+              screenshot: "wallet-ui-node.png"
+            - name: "Point it at a port nothing is listening on"
+              # Deliberately unreachable, and deliberately LOCAL: it makes the rest of this run
+              # offline and deterministic, and it reproduces the state a user is in when their
+              # public node goes down. Saving it also exercises the write path that was
+              # unreachable from the app until this form moved here.
+              action: set_text
+              find_by: "objectName"
+              find_value: "nodeHostField"
+              value: "http://127.0.0.1:1"
+            - name: "Save node"
+              action: click
+              target: "Save node"
             - name: "Go to Create (navigate via the root: only the active StackLayout page is in the scene)"
               action: call_method
               find_by: "objectName"
@@ -85,7 +128,7 @@ sections:
             - name: "Create"
               action: click
               target: "Create wallet"
-            - name: "The wallet opens and starts syncing — same app, no hop"
+            - name: "The wallet opens — same app, no hop to a separate keys surface"
               # `wait_for` polls and matches text by EQUALITY, so the anchor has to be a string
               # that is both stable and only true once this wallet is open. The status line and
               # the sync chip both carry a live height and percentage, so neither can be one.
@@ -93,6 +136,16 @@ sections:
               texts: ["Wallet: doctest"]
               timeout: 60000
               screenshot: "wallet-ui-open.png"
+            - name: "The wallet is open but the engine is NOT connected, and the chrome says so"
+              # wallet2 keeps serving its last known daemon height after the daemon goes away, so
+              # before this the sync chip went on printing "Synced … 100%" over a dead node — in a
+              # wallet, a claim that your balance is current. Asserted as a property rather than
+              # by matching the chip's text, which carries live heights.
+              action: expect_property
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              property: "engineConnected"
+              value: false
             - name: "Go to Receive"
               action: call_method
               find_by: "objectName"
@@ -111,3 +164,18 @@ sections:
               property: "visible"
               value: true
               screenshot: "wallet-ui-receive.png"
+            - name: "...and with a wallet open that same page is NOT on screen"
+              # The control for the assertion above. If this reads true, `visible` is not
+              # telling the two states apart and the reachability check higher up proves
+              # nothing — which is how the original bug survived a green run.
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "selectWalletsPage"
+              args: [5]
+            - name: "Hidden behind the open wallet"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "walletsNodePage"
+              property: "visible"
+              value: false

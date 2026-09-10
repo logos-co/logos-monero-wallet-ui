@@ -83,6 +83,11 @@ Item {
     readonly property var send: ready ? j(backend.sendStatusJson, "{}") : ({})
     readonly property bool sendOpen: ready && backend.sendRequestId !== ""
     readonly property bool walletOpen: status.state === "ready" || status.state === "syncing"
+    // The engine's OWN socket to the daemon — not the node module's separate health probe, which
+    // is what the node chip shows. wallet2 keeps returning its last known daemon height after the
+    // daemon goes away, so this is the difference between "your balance is current" and "this is
+    // what we last heard", and the sync chip has to render that difference.
+    readonly property bool engineConnected: ready && walletOpen && status.connected === true
     readonly property bool viewOnly: !!status.watchOnly
     readonly property var nodeCfg: ready ? j(backend.nodeConfigJson, "{}") : ({})
     readonly property int selectedIndex: ready ? backend.selectedSubaddress : 0
@@ -110,7 +115,7 @@ Item {
     // The harness navigates with these rather than clicking a tab: only the active StackLayout
     // page is in the visible scene, and a text-click on a TabButton is not a reliable switch.
     property int page: 0            // 0 Home, 1 Send, 2 Receive, 3 Activity, 4 Settings
-    property int walletsPage: 0     // 0 list, 1 open, 2 create, 3 restore seed, 4 restore keys
+    property int walletsPage: 0     // 0 list, 1 open, 2 create, 3 restore seed, 4 restore keys, 5 node
     function selectTab(i) { root.page = i }
     function selectWalletsPage(i) { root.walletsPage = i }
     function parseQr(s) { try { return s ? JSON.parse(s) : null } catch (e) { return null } }
@@ -169,8 +174,17 @@ Item {
             Item { Layout.fillWidth: true }
             LogosText {
                 objectName: "syncChip"; textFormat: Text.PlainText; font.pixelSize: 12
+                // `connected` is what makes these heights a live claim rather than a memory.
+                // wallet2 keeps returning its last known daemon height after the daemon goes
+                // away, so without this the chip went on saying "Synced … 100%" for as long as
+                // the app stayed open — and in a wallet that reads as "your balance is current".
+                // It is the ENGINE's own socket, which is not the same question as the node
+                // chip beside it: that one is the node module's separate health probe, and the
+                // two can disagree (a proxy that only the engine is configured for, say).
                 text: !root.ready ? "Connecting…" : (root.walletOpen
-                    ? ((status.synchronized ? "Synced " : "Syncing ") + (status.walletHeight || 0) + " / " + (status.daemonHeight || 0) + " (" + (status.syncPercent || 0) + "%)")
+                    ? ((root.engineConnected ? (status.synchronized ? "Synced " : "Syncing ") : "Last seen ")
+                       + (status.walletHeight || 0) + " / " + (status.daemonHeight || 0) + " (" + (status.syncPercent || 0) + "%)"
+                       + (root.engineConnected ? "" : " · not connected"))
                     : "No wallet open")
             }
             LogosText { objectName: "nodeChip"; textFormat: Text.PlainText; font.pixelSize: 12; opacity: 0.8
@@ -239,6 +253,7 @@ Item {
                 TabButton { text: "Create" }
                 TabButton { text: "Restore (seed)" }
                 TabButton { text: "Restore (keys)" }
+                TabButton { text: "Node" }
             }
 
             StackLayout {
@@ -332,6 +347,81 @@ Item {
                         enabled: root.ready && !root.busy && kName.text !== "" && kAddr.text !== "" && kView.text !== "" && kPw.text !== ""
                         onClicked: { backend.restoreFromKeys(kName.text, kPw.text, kAddr.text, kView.text, kSpend.text, parseInt(kHeight.text || "0"), ""); kView.text = ""; kSpend.text = ""; kPw.text = "" }
                     }
+                }
+
+                // 5: the remote node. It lives HERE rather than in Settings because this is the
+                // screen you are on when no wallet is open, which is the only time it can be
+                // saved — wallet2 binds its daemon at open, so a change while one is open would
+                // be a lie until the next open, and the backend refuses it.
+                ColumnLayout {
+                    // Named so a test can assert REACHABILITY, not just that the fields exist:
+                    // findByProperty walks the whole tree ignoring visibility, so an assertion on
+                    // the field alone passes even when this screen is hidden behind an open
+                    // wallet — which is the exact bug this page was moved here to fix.
+                    objectName: "walletsNodePage"
+                    spacing: 8
+                    LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.85
+                                text: node.reachable === true
+                                      ? ("Reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") + " · " + (node.rttMs || 0) + "ms")
+                                      : ("Node: " + (node.error || "unknown")) }
+                    LogosText { textFormat: Text.PlainText; opacity: 0.85
+                                text: "Network: " + (networks.active || "?") + " — the node is stored per network." }
+                    GridLayout {
+                        columns: 2; columnSpacing: 10; rowSpacing: 6
+                        Layout.fillWidth: true
+                        enabled: root.ready
+
+                        LogosText { text: "Address"; opacity: 0.8 }
+                        TextField { id: ndHost; objectName: "nodeHostField"; Layout.fillWidth: true
+                                    placeholderText: "http://host:port, e.g. http://node2.monerodevs.org:38089"
+                                    text: root.nodeCfg.url || "" }
+                        LogosText { text: "Daemon username"; opacity: 0.8 }
+                        TextField { id: ndUser; objectName: "nodeUserField"; Layout.fillWidth: true
+                                    placeholderText: "optional"; text: root.nodeCfg.username || "" }
+                        LogosText { text: "Daemon password"; opacity: 0.8 }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            TextField { id: ndPass; objectName: "nodePasswordField"; Layout.fillWidth: true
+                                        echoMode: TextInput.Password
+                                        Component.onCompleted: passwordMaskDelay = 0
+                                        placeholderText: root.nodeCfg.hasPassword ? "unchanged — type to replace" : "optional" }
+                            LogosButton { visible: !!root.nodeCfg.hasPassword; text: "Clear stored"
+                                          onClicked: { ndPass.text = ""; root.clearNodePassword = true } }
+                        }
+                        LogosText { text: "Proxy"; opacity: 0.8 }
+                        TextField { id: ndProxy; objectName: "nodeProxyField"; Layout.fillWidth: true
+                                    placeholderText: "socks5h://127.0.0.1:9050 (empty for none)"
+                                    text: root.nodeCfg.proxy || "" }
+                        LogosText { text: ""; opacity: 0 }
+                        CheckBox { id: ndProxyReq; objectName: "nodeProxyRequiredBox"; text: "Require the proxy (refuse to connect without it)"
+                                   checked: !!root.nodeCfg.proxyRequired }
+                        LogosText { text: ""; opacity: 0 }
+                        CheckBox { id: ndTrusted; objectName: "nodeTrustedBox"; text: "Trusted daemon"
+                                   checked: !!root.nodeCfg.trusted }
+                    }
+                    RowLayout {
+                        LogosButton {
+                            objectName: "saveNodeButton"; text: "Save node"
+                            enabled: root.ready && ndHost.text !== ""
+                            onClicked: {
+                                var cfg = { url: ndHost.text.trim(),
+                                            username: ndUser.text.trim(),
+                                            proxy: ndProxy.text.trim(),
+                                            proxyRequired: ndProxyReq.checked,
+                                            trusted: ndTrusted.checked }
+                                // Omitting password KEEPS the stored one; "" clears it.
+                                if (ndPass.text !== "") cfg.password = ndPass.text
+                                else if (root.clearNodePassword) cfg.password = ""
+                                backend.saveNodeConfig(JSON.stringify(cfg))
+                                ndPass.text = ""; root.clearNodePassword = false
+                            }
+                        }
+                        LogosButton { text: "Revert"; enabled: root.ready
+                                      onClicked: { ndHost.text = root.nodeCfg.url || ""; ndUser.text = root.nodeCfg.username || ""
+                                                   ndProxy.text = root.nodeCfg.proxy || ""; ndProxyReq.checked = !!root.nodeCfg.proxyRequired
+                                                   ndTrusted.checked = !!root.nodeCfg.trusted; ndPass.text = ""; root.clearNodePassword = false } }
+                    }
+                    Item { Layout.fillHeight: true }
                 }
             }
         }
@@ -665,71 +755,24 @@ Item {
                         }
                     }
 
-                    // ---- Remote node ----
+                    // ---- Remote node: READ-ONLY here ----
+                    // The form lives on the Wallets screen, not in this tab. It can only be
+                    // saved while no wallet is open (wallet2 binds its daemon at open, and the
+                    // backend refuses the write), and this tab only exists while one IS open —
+                    // so a form here is visible exactly when it cannot be used. It was, and the
+                    // node was unchangeable from the app.
                     LogosText { text: "Node"; font.pixelSize: 16 }
                     LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.85
                                 text: node.reachable === true
                                       ? ("Reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") + " · " + (node.rttMs || 0) + "ms")
                                       : ("Node: " + (node.error || "unknown")) }
+                    LogosText { objectName: "settingsNodeUrl"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true; opacity: 0.85
+                                text: "Address: " + (root.nodeCfg.url || "—") }
                     LogosText { textFormat: Text.PlainText; opacity: 0.85
-                                text: "Network: " + (status.activeNetwork || "") + " — switch it from the Wallets screen while no wallet is open." }
-                    LogosText { visible: root.walletOpen; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.7
-                                text: "Close the wallet to change the node: the engine binds its daemon when the wallet opens." }
-                    GridLayout {
-                        columns: 2; columnSpacing: 10; rowSpacing: 6
-                        Layout.fillWidth: true
-                        enabled: root.ready && !root.walletOpen
-
-                        LogosText { text: "Address"; opacity: 0.8 }
-                        TextField { id: ndHost; objectName: "nodeHostField"; Layout.fillWidth: true
-                                    placeholderText: "host or host:port, e.g. node.monerodevs.org:38089"
-                                    text: root.nodeCfg.url || "" }
-                        LogosText { text: "Daemon username"; opacity: 0.8 }
-                        TextField { id: ndUser; objectName: "nodeUserField"; Layout.fillWidth: true
-                                    placeholderText: "optional"; text: root.nodeCfg.username || "" }
-                        LogosText { text: "Daemon password"; opacity: 0.8 }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            TextField { id: ndPass; objectName: "nodePasswordField"; Layout.fillWidth: true
-                                        echoMode: TextInput.Password
-                                        Component.onCompleted: passwordMaskDelay = 0
-                                        placeholderText: root.nodeCfg.hasPassword ? "unchanged — type to replace" : "optional" }
-                            LogosButton { visible: !!root.nodeCfg.hasPassword; text: "Clear stored"
-                                          onClicked: { ndPass.text = ""; root.clearNodePassword = true } }
-                        }
-                        LogosText { text: "Proxy"; opacity: 0.8 }
-                        TextField { id: ndProxy; objectName: "nodeProxyField"; Layout.fillWidth: true
-                                    placeholderText: "socks5h://127.0.0.1:9050 (empty for none)"
-                                    text: root.nodeCfg.proxy || "" }
-                        LogosText { text: ""; opacity: 0 }
-                        CheckBox { id: ndProxyReq; objectName: "nodeProxyRequiredBox"; text: "Require the proxy (refuse to connect without it)"
-                                   checked: !!root.nodeCfg.proxyRequired }
-                        LogosText { text: ""; opacity: 0 }
-                        CheckBox { id: ndTrusted; objectName: "nodeTrustedBox"; text: "Trusted daemon"
-                                   checked: !!root.nodeCfg.trusted }
-                    }
-                    RowLayout {
-                        LogosButton {
-                            objectName: "saveNodeButton"; text: "Save node"
-                            enabled: root.ready && !root.walletOpen && ndHost.text !== ""
-                            onClicked: {
-                                var cfg = { url: ndHost.text.trim(),
-                                            username: ndUser.text.trim(),
-                                            proxy: ndProxy.text.trim(),
-                                            proxyRequired: ndProxyReq.checked,
-                                            trusted: ndTrusted.checked }
-                                // Omitting password KEEPS the stored one; "" clears it.
-                                if (ndPass.text !== "") cfg.password = ndPass.text
-                                else if (root.clearNodePassword) cfg.password = ""
-                                backend.saveNodeConfig(JSON.stringify(cfg))
-                                ndPass.text = ""; root.clearNodePassword = false
-                            }
-                        }
-                        LogosButton { text: "Revert"; enabled: !root.walletOpen
-                                      onClicked: { ndHost.text = root.nodeCfg.url || ""; ndUser.text = root.nodeCfg.username || ""
-                                                   ndProxy.text = root.nodeCfg.proxy || ""; ndProxyReq.checked = !!root.nodeCfg.proxyRequired
-                                                   ndTrusted.checked = !!root.nodeCfg.trusted; ndPass.text = ""; root.clearNodePassword = false } }
-                    }
+                                text: "Network: " + (status.activeNetwork || "") }
+                    LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.7
+                                text: "Close this wallet to change either one: the engine binds its daemon when a wallet "
+                                      + "opens. The node form and the network picker are both on the Wallets screen." }
 
                     LogosText { textFormat: Text.PlainText; opacity: 0.7
                                 text: "Engine: monero_c " + (status.libraryVersion || "") + " (LGPL-3.0, dynamically linked)" }
