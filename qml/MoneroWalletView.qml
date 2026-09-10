@@ -83,13 +83,36 @@ Item {
     readonly property var send: ready ? j(backend.sendStatusJson, "{}") : ({})
     readonly property bool sendOpen: ready && backend.sendRequestId !== ""
     readonly property bool walletOpen: status.state === "ready" || status.state === "syncing"
+    // `busy` means the engine held its wallet lock past the read deadline, so that status carries
+    // the state machine and NOTHING about the chain — no `connected`, no heights (see
+    // WalletRuntime::status). A transaction build holds it for ~15 s, so reading the ABSENCE of
+    // `connected` as "disconnected" would raise a false alarm at exactly the moment the user is
+    // reviewing a transaction, and pair it with a fabricated 0 / 0.
+    readonly property bool engineBusy: ready && status.busy === true
     // The engine's OWN socket to the daemon — not the node module's separate health probe, which
     // is what the node chip shows. wallet2 keeps returning its last known daemon height after the
     // daemon goes away, so this is the difference between "your balance is current" and "this is
     // what we last heard", and the sync chip has to render that difference.
-    readonly property bool engineConnected: ready && walletOpen && status.connected === true
+    readonly property bool engineConnected: ready && walletOpen && !engineBusy && status.connected === true
     readonly property bool viewOnly: !!status.watchOnly
     readonly property var nodeCfg: ready ? j(backend.nodeConfigJson, "{}") : ({})
+    // The node form edits ONE network's config, and the network picker sits on the same screen.
+    // `nodeFormNetwork` records which network the fields currently hold, so a switch cannot save
+    // one network's daemon over another's: the form repopulates when the new config arrives, and
+    // Save is refused until it has.
+    readonly property string activeNetwork: ready ? (networks.active || "") : ""
+    // The network the fields actually hold, taken from the CONFIG rather than from whatever is
+    // active now: on a switch the new config arrives a poll later, and claiming the new network
+    // while still showing the old one's daemon is the mis-save this exists to prevent.
+    property string nodeFormNetwork: ""
+    // A save was sent and we are waiting to see it in the stored config. Only a write that landed
+    // changes nodeCfg, so this is what tells a successful save from a refused one.
+    property bool nodeSavePending: false
+    onActiveNetworkChanged: root.resetNodeForm()
+    onNodeCfgChanged: {
+        if (root.nodeSavePending || root.nodeFormNetwork !== (root.nodeCfg.network || ""))
+            root.resetNodeForm()
+    }
     readonly property int selectedIndex: ready ? backend.selectedSubaddress : 0
     readonly property string selectedAddress: {
         if (!root.receiveRead) return ""
@@ -118,6 +141,22 @@ Item {
     property int walletsPage: 0     // 0 list, 1 open, 2 create, 3 restore seed, 4 restore keys, 5 node
     function selectTab(i) { root.page = i }
     function selectWalletsPage(i) { root.walletsPage = i }
+    // Populate the node form from the active network's stored config, dropping any half-finished
+    // edit. `clearNodePassword` is armed by the Clear stored button and, before this, was reset
+    // only by Save or Revert — so it survived leaving the page and even a network switch, and the
+    // next Save cleared a password the user never meant to touch.
+    function resetNodeForm() {
+        if (!ndHost) return
+        ndHost.text = root.nodeCfg.url || ""
+        ndUser.text = root.nodeCfg.username || ""
+        ndProxy.text = root.nodeCfg.proxy || ""
+        ndProxyReq.checked = !!root.nodeCfg.proxyRequired
+        ndTrusted.checked = !!root.nodeCfg.trusted
+        ndPass.text = ""
+        root.clearNodePassword = false
+        root.nodeSavePending = false
+        root.nodeFormNetwork = root.nodeCfg.network || ""
+    }
     function parseQr(s) { try { return s ? JSON.parse(s) : null } catch (e) { return null } }
     function qrRuns(qr) {
         const runs = []
@@ -157,6 +196,7 @@ Item {
     // can close the session out from under this view.
     onWalletOpenChanged: root.hideSecret()
     onPageChanged: if (root.page !== 4) root.hideSecret()
+    onWalletsPageChanged: if (root.walletsPage === 5) root.resetNodeForm()
 
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 16; spacing: 10
@@ -182,9 +222,10 @@ Item {
                 // chip beside it: that one is the node module's separate health probe, and the
                 // two can disagree (a proxy that only the engine is configured for, say).
                 text: !root.ready ? "Connecting…" : (root.walletOpen
-                    ? ((root.engineConnected ? (status.synchronized ? "Synced " : "Syncing ") : "Last seen ")
-                       + (status.walletHeight || 0) + " / " + (status.daemonHeight || 0) + " (" + (status.syncPercent || 0) + "%)"
-                       + (root.engineConnected ? "" : " · not connected"))
+                    ? (root.engineBusy ? "Working…"
+                       : ((root.engineConnected ? (status.synchronized ? "Synced " : "Syncing ") : "Last seen ")
+                          + (status.walletHeight || 0) + " / " + (status.daemonHeight || 0) + " (" + (status.syncPercent || 0) + "%)"
+                          + (root.engineConnected ? "" : " · not connected")))
                     : "No wallet open")
             }
             LogosText { objectName: "nodeChip"; textFormat: Text.PlainText; font.pixelSize: 12; opacity: 0.8
@@ -384,7 +425,10 @@ Item {
                             TextField { id: ndPass; objectName: "nodePasswordField"; Layout.fillWidth: true
                                         echoMode: TextInput.Password
                                         Component.onCompleted: passwordMaskDelay = 0
-                                        placeholderText: root.nodeCfg.hasPassword ? "unchanged — type to replace" : "optional" }
+                                        // The armed Clear has to be VISIBLE. It used to be a
+                                        // root-scoped boolean with nothing on screen saying so.
+                                        placeholderText: root.clearNodePassword ? "will be CLEARED when you save"
+                                                         : (root.nodeCfg.hasPassword ? "unchanged — type to replace" : "optional") }
                             LogosButton { visible: !!root.nodeCfg.hasPassword; text: "Clear stored"
                                           onClicked: { ndPass.text = ""; root.clearNodePassword = true } }
                         }
@@ -402,7 +446,15 @@ Item {
                     RowLayout {
                         LogosButton {
                             objectName: "saveNodeButton"; text: "Save node"
-                            enabled: root.ready && ndHost.text !== ""
+                            // Empty means the form holds no other network's config — a device
+                            // with nothing stored yet, which must still be able to save. Only a
+                            // form still holding a DIFFERENT network's daemon is refused.
+                            // `busy` is a wallet lifecycle job in flight — open, close, create,
+                            // restore, change password. The backend refuses a node write for the
+                            // whole of one, and offering a button that cannot work is how the
+                            // password-wipe above became reachable.
+                            enabled: root.ready && !root.busy && ndHost.text !== ""
+                                     && (root.nodeFormNetwork === "" || root.nodeFormNetwork === root.activeNetwork)
                             onClicked: {
                                 var cfg = { url: ndHost.text.trim(),
                                             username: ndUser.text.trim(),
@@ -413,13 +465,17 @@ Item {
                                 if (ndPass.text !== "") cfg.password = ndPass.text
                                 else if (root.clearNodePassword) cfg.password = ""
                                 backend.saveNodeConfig(JSON.stringify(cfg))
-                                ndPass.text = ""; root.clearNodePassword = false
+                                // Do NOT clear the fields here. saveNodeConfig is refused while a
+                                // wallet is open or opening, and wiping the typed password before
+                                // knowing the write landed is how a retry ends up sending the new
+                                // host with no password — silently rebinding the OLD daemon's
+                                // credential to it. The form is cleared by resetNodeForm() when
+                                // the stored config actually changes, which only a save that
+                                // landed can do.
+                                root.nodeSavePending = true
                             }
                         }
-                        LogosButton { text: "Revert"; enabled: root.ready
-                                      onClicked: { ndHost.text = root.nodeCfg.url || ""; ndUser.text = root.nodeCfg.username || ""
-                                                   ndProxy.text = root.nodeCfg.proxy || ""; ndProxyReq.checked = !!root.nodeCfg.proxyRequired
-                                                   ndTrusted.checked = !!root.nodeCfg.trusted; ndPass.text = ""; root.clearNodePassword = false } }
+                        LogosButton { text: "Revert"; enabled: root.ready; onClicked: root.resetNodeForm() }
                     }
                     Item { Layout.fillHeight: true }
                 }
