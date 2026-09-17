@@ -81,6 +81,10 @@ Item {
     readonly property var history: historyRead ? (j(backend.historyJson, "{}").rows || []) : []
     readonly property var send: ready ? j(backend.sendStatusJson, "{}") : ({})
     readonly property bool sendOpen: ready && backend.sendRequestId !== ""
+    // Only a live send can be cancelled — the backend refuses cancel on a settled one, so the
+    // Done button dismisses instead. An empty state (the record went away under us) dismisses too.
+    readonly property bool sendLive: sendOpen && (send.state === "preparing" || send.state === "previewed"
+                                                  || send.state === "committing")
     readonly property bool walletOpen: status.state === "ready" || status.state === "syncing"
     // `busy` means the engine held its wallet lock past the read deadline, so that status carries
     // the state machine and NOTHING about the chain — no `connected`, no heights (see
@@ -197,6 +201,10 @@ Item {
     function shortId(s) { return s && s.length > 20 ? s.slice(0, 10) + "…" + s.slice(-8) : (s || "") }
     function whenOf(ts) { return ts ? new Date(ts * 1000).toLocaleString(Qt.locale(), Locale.ShortFormat) : "—" }
     function xmrOf(atomic) { return root.ready ? backend.formatXmr(String(atomic || "0")) : "" }
+    // monero zeroes an outgoing amount when every output came back to the same account, "so that
+    // it's less confusing" (wallet2.cpp, process_new_transaction). The raw row then reads
+    // −0.000000000000 XMR, which is faithful and unreadable: only the fee actually left.
+    function isSelfSend(r) { return !!r && r.direction === "out" && r.amount === "0" }
     // Drop a revealed secret whenever it stops being this wallet's, on this page — not only
     // when the user happens to press Hide or the one Close button. Any holder of either role
     // can close the session out from under this view.
@@ -268,7 +276,11 @@ Item {
             objectName: "statusLine"
             textFormat: Text.PlainText
             text: !root.ready ? "" : (root.walletOpen
-                ? ("Open: " + status.wallet + " · " + status.state + " · " + (status.syncPercent || 0) + "%")
+                // No percentage while the engine is busy: the status then carries no heights, and
+                // "0%" on a wallet that is 100% synced is the same fabrication the chip beside
+                // this line already refuses to make.
+                ? ("Open: " + status.wallet + " · " + status.state + " · "
+                   + (root.engineBusy ? "—" : ((status.syncPercent || 0) + "%")))
                 : (status.state === "opening" ? "Opening…" : (status.state === "closing" ? "Closing…" : "No wallet open")))
         }
 
@@ -295,7 +307,7 @@ Item {
                             text: send.error || "" }
                 LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
                             text: "Check Activity once the wallet re-syncs, before sending again." }
-                LogosButton { objectName: "dismissUnknownButton"; text: "Dismiss"; onClicked: backend.cancelSend() }
+                LogosButton { objectName: "dismissUnknownButton"; text: "Dismiss"; onClicked: backend.dismissSend() }
             }
         }
 
@@ -464,9 +476,16 @@ Item {
                         RowLayout {
                             LogosButton { objectName: "confirmSendButton"; text: "Confirm and broadcast"; visible: send.state === "previewed"; onClicked: backend.confirmSend() }
                             LogosButton {
-                                text: (send.state === "sent" || send.state === "failed" || send.state === "unknown") ? "Done" : "Cancel"
+                                objectName: "sendDismissButton"
+                                text: root.sendLive ? "Cancel" : "Done"
                                 visible: send.state !== "committing"
-                                onClicked: { backend.cancelSend(); if (send.state === "sent" || send.state === "unknown") { sendAddr.text = ""; sendAmt.text = "" } }
+                                // Read the state BEFORE acting: both calls clear it, and the
+                                // fields must still be cleared after a send that went out.
+                                onClicked: {
+                                    var s = send.state
+                                    if (root.sendLive) backend.cancelSend(); else backend.dismissSend()
+                                    if (s === "sent" || s === "unknown") { sendAddr.text = ""; sendAmt.text = "" }
+                                }
                             }
                         }
                     }
@@ -618,7 +637,9 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 LogosText { textFormat: Text.PlainText
-                                            text: (modelData.direction === "in" ? "+" : "−") + modelData.amountXmr + " XMR" }
+                                            text: root.isSelfSend(modelData)
+                                                  ? ("to yourself · fee " + modelData.feeXmr + " XMR")
+                                                  : ((modelData.direction === "in" ? "+" : "−") + modelData.amountXmr + " XMR") }
                                 LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary
                                             text: modelData.pending ? "pending"
                                                   : (modelData.failed ? "failed"
@@ -638,7 +659,11 @@ Item {
                                 LogosText { text: "Date"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: root.whenOf(modelData.timestamp) }
                                 LogosText { text: "Amount"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
-                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: modelData.amountXmr + " XMR" }
+                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11; wrapMode: Text.Wrap
+                                            Layout.fillWidth: true
+                                            text: root.isSelfSend(modelData)
+                                                  ? "— (every output came back to this account; only the fee left)"
+                                                  : (modelData.amountXmr + " XMR") }
                                 LogosText { text: "Fee"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11
                                             text: modelData.direction === "in" ? "—  (paid by the sender)" : modelData.feeXmr + " XMR" }
