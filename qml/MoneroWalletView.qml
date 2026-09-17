@@ -201,6 +201,10 @@ Item {
     function shortId(s) { return s && s.length > 20 ? s.slice(0, 10) + "…" + s.slice(-8) : (s || "") }
     function whenOf(ts) { return ts ? new Date(ts * 1000).toLocaleString(Qt.locale(), Locale.ShortFormat) : "—" }
     function xmrOf(atomic) { return root.ready ? backend.formatXmr(String(atomic || "0")) : "" }
+    // monero zeroes an outgoing amount when every output came back to the same account, "so that
+    // it's less confusing" (wallet2.cpp, process_new_transaction). The raw row then reads
+    // −0.000000000000 XMR, which is faithful and unreadable: only the fee actually left.
+    function isSelfSend(r) { return !!r && r.direction === "out" && r.amount === "0" }
     // Drop a revealed secret whenever it stops being this wallet's, on this page — not only
     // when the user happens to press Hide or the one Close button. Any holder of either role
     // can close the session out from under this view.
@@ -633,7 +637,9 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 LogosText { textFormat: Text.PlainText
-                                            text: (modelData.direction === "in" ? "+" : "−") + modelData.amountXmr + " XMR" }
+                                            text: root.isSelfSend(modelData)
+                                                  ? ("to yourself · fee " + modelData.feeXmr + " XMR")
+                                                  : ((modelData.direction === "in" ? "+" : "−") + modelData.amountXmr + " XMR") }
                                 LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary
                                             text: modelData.pending ? "pending"
                                                   : (modelData.failed ? "failed"
@@ -653,7 +659,11 @@ Item {
                                 LogosText { text: "Date"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: root.whenOf(modelData.timestamp) }
                                 LogosText { text: "Amount"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
-                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11; text: modelData.amountXmr + " XMR" }
+                                LogosText { textFormat: Text.PlainText; font.pixelSize: 11; wrapMode: Text.Wrap
+                                            Layout.fillWidth: true
+                                            text: root.isSelfSend(modelData)
+                                                  ? "— (every output came back to this account; only the fee left)"
+                                                  : (modelData.amountXmr + " XMR") }
                                 LogosText { text: "Fee"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11
                                             text: modelData.direction === "in" ? "—  (paid by the sender)" : modelData.feeXmr + " XMR" }
