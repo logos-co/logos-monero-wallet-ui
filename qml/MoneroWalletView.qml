@@ -81,6 +81,10 @@ Item {
     readonly property var history: historyRead ? (j(backend.historyJson, "{}").rows || []) : []
     readonly property var send: ready ? j(backend.sendStatusJson, "{}") : ({})
     readonly property bool sendOpen: ready && backend.sendRequestId !== ""
+    // Only a live send can be cancelled — the backend refuses cancel on a settled one, so the
+    // Done button dismisses instead. An empty state (the record went away under us) dismisses too.
+    readonly property bool sendLive: sendOpen && (send.state === "preparing" || send.state === "previewed"
+                                                  || send.state === "committing")
     readonly property bool walletOpen: status.state === "ready" || status.state === "syncing"
     // `busy` means the engine held its wallet lock past the read deadline, so that status carries
     // the state machine and NOTHING about the chain — no `connected`, no heights (see
@@ -268,7 +272,11 @@ Item {
             objectName: "statusLine"
             textFormat: Text.PlainText
             text: !root.ready ? "" : (root.walletOpen
-                ? ("Open: " + status.wallet + " · " + status.state + " · " + (status.syncPercent || 0) + "%")
+                // No percentage while the engine is busy: the status then carries no heights, and
+                // "0%" on a wallet that is 100% synced is the same fabrication the chip beside
+                // this line already refuses to make.
+                ? ("Open: " + status.wallet + " · " + status.state + " · "
+                   + (root.engineBusy ? "—" : ((status.syncPercent || 0) + "%")))
                 : (status.state === "opening" ? "Opening…" : (status.state === "closing" ? "Closing…" : "No wallet open")))
         }
 
@@ -295,7 +303,7 @@ Item {
                             text: send.error || "" }
                 LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
                             text: "Check Activity once the wallet re-syncs, before sending again." }
-                LogosButton { objectName: "dismissUnknownButton"; text: "Dismiss"; onClicked: backend.cancelSend() }
+                LogosButton { objectName: "dismissUnknownButton"; text: "Dismiss"; onClicked: backend.dismissSend() }
             }
         }
 
@@ -464,9 +472,16 @@ Item {
                         RowLayout {
                             LogosButton { objectName: "confirmSendButton"; text: "Confirm and broadcast"; visible: send.state === "previewed"; onClicked: backend.confirmSend() }
                             LogosButton {
-                                text: (send.state === "sent" || send.state === "failed" || send.state === "unknown") ? "Done" : "Cancel"
+                                objectName: "sendDismissButton"
+                                text: root.sendLive ? "Cancel" : "Done"
                                 visible: send.state !== "committing"
-                                onClicked: { backend.cancelSend(); if (send.state === "sent" || send.state === "unknown") { sendAddr.text = ""; sendAmt.text = "" } }
+                                // Read the state BEFORE acting: both calls clear it, and the
+                                // fields must still be cleared after a send that went out.
+                                onClicked: {
+                                    var s = send.state
+                                    if (root.sendLive) backend.cancelSend(); else backend.dismissSend()
+                                    if (s === "sent" || s === "unknown") { sendAddr.text = ""; sendAmt.text = "" }
+                                }
                             }
                         }
                     }

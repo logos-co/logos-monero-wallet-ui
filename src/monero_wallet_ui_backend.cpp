@@ -21,7 +21,12 @@ constexpr int kSendPollMs = 700;
 }
 
 void MoneroWalletUiBackend::say(const QString &line) {
-    setLastError(lastError().isEmpty() ? line : lastError() + QLatin1Char('\n') + line);
+    const QString cur = lastError();
+    if (cur.isEmpty()) { setLastError(line); return; }
+    // The read poll runs every 3 s, so a failure that lasts stacks the same sentence once per
+    // tick. Saying it twice adds nothing the first line did not.
+    if (cur.split(QLatin1Char('\n')).contains(line)) return;
+    setLastError(cur + QLatin1Char('\n') + line);
 }
 
 bool MoneroWalletUiBackend::ok(const QString &reply, const QString &context) {
@@ -90,7 +95,13 @@ void MoneroWalletUiBackend::loadBalances() {
     const QString state = st.value("state").toString();
     if (state != "ready" && state != "syncing") { setBalancesJson({}); return; }
     const QString r = modules().monero_wallet_backend.balances(0);
-    setBalancesJson(ok(r, "balances") ? stripOk(r) : QString());
+    const QJsonObject o = parse(r);
+    if (o.value("ok").toBool()) { setBalancesJson(stripOk(r)); return; }
+    // Unread, not failed: building a transaction holds the engine's wallet lock for ~15 s, and
+    // the view already renders an unread balance as an em-dash. Reporting it turned every send
+    // into a column of red while the send itself was going fine.
+    setBalancesJson({});
+    if (!o.value("busy").toBool()) ok(r, "balances");
 }
 
 void MoneroWalletUiBackend::loadReceive() {
@@ -320,6 +331,14 @@ void MoneroWalletUiBackend::cancelSend() {
         m_sendPoll.start(kSendPollMs);
         return;
     }
+    dismissSend();
+}
+
+// Take a settled send off the screen. NOT cancel_send: that is refused on every terminal state
+// ("send already sent"), and the refusal used to leave sendRequestId set — which kept the sheet
+// up, disabled the address, amount, priority and Review controls, and so wedged the Send tab for
+// the rest of the session after one successful broadcast.
+void MoneroWalletUiBackend::dismissSend() {
     m_sendPoll.stop();
     setSendRequestId({});
     setSendStatusJson(QStringLiteral("{}"));

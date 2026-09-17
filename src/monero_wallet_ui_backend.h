@@ -46,6 +46,7 @@ public:
     void prepareSend(QString sendJson) override;
     void confirmSend() override;
     void cancelSend() override;
+    void dismissSend() override;
     bool addressValid(QString address) override;
     QString formatXmr(QString atomic) override;
 

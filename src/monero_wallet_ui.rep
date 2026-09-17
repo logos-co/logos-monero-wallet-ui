@@ -91,7 +91,11 @@ class MoneroWalletUi
     SLOT(void prepareSend(QString sendJson))
     // Broadcast the previewed transaction. This is BROADCAST approval; the engine signed at build.
     SLOT(void confirmSend())
+    // Cancel a send that is still LIVE (preparing or previewed). The backend refuses it on a
+    // settled one, so anything terminal is dismissed instead.
     SLOT(void cancelSend())
+    // Clear a settled send off the screen. Local: the backend keeps its record either way.
+    SLOT(void dismissSend())
     SLOT(bool addressValid(QString address))
     SLOT(QString formatXmr(QString atomic))
 }
