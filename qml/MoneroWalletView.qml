@@ -45,8 +45,8 @@ Item {
             if (moduleName === "monero_wallet_ui") root.ready = isReady && root.backend !== null
         }
         // We PROVIDE both Monero capabilities. Another app (a receive-only till, a companion)
-        // can ask this wallet to unlock or to bring wallet management up; we never ask anyone
-        // else, because managing wallets is a screen here rather than a trip to a second app.
+        // can ask this wallet to unlock or to bring wallet management up. The one we ask for is
+        // monero.node.configure: the local node has its own app.
         function onIntentRequested(requestId, intent, params, requesterName) {
             if (intent === "monero.accounts.manage") {
                 if (root.walletOpen) root.selectTab(4)  // Settings holds management once open
@@ -99,6 +99,12 @@ Item {
     readonly property bool engineConnected: ready && walletOpen && !engineBusy && status.connected === true
     readonly property bool viewOnly: !!status.watchOnly
     readonly property var nodeCfg: ready ? j(backend.nodeConfigJson, "{}") : ({})
+    readonly property var localNode: ready ? j(backend.localNodeJson, "{}") : ({})
+    // The mode the node form holds. Local is offered when monerod_module can serve this network,
+    // or when it is already stored, so a user whose node module went away can switch back.
+    property string ndMode: "remote"
+    readonly property bool localOffered: localNode.available === true || nodeCfg.mode === "local"
+    property string nodeIntentNote: ""
     // The node form edits ONE network's config, and the network picker sits on the same screen.
     // `nodeFormNetwork` records which network the fields currently hold, so a switch cannot save
     // one network's daemon over another's: the form repopulates when the new config arrives, and
@@ -162,10 +168,46 @@ Item {
         ndProxy.text = root.nodeCfg.proxy || ""
         ndProxyReq.checked = !!root.nodeCfg.proxyRequired
         ndTrusted.checked = !!root.nodeCfg.trusted
+        root.ndMode = root.nodeCfg.mode || "remote"
+        root.nodeIntentNote = ""
         ndPass.text = ""
         root.clearNodePassword = false
         root.nodeSavePending = false
         root.nodeFormNetwork = root.nodeCfg.network || ""
+    }
+    // The node line for the sheet and Settings. In local mode it describes the node on this
+    // device, including when it is stopped or serving another network.
+    function nodeLine() {
+        if (node.mode === "local") {
+            var l = node.local || {}
+            if (l.state === "unavailable") return "Local node: " + (l.error || "unavailable")
+            if (l.state !== "running") return "Local node: " + (l.state || "unknown")
+            if (l.network && l.network !== root.activeNetwork)
+                return "Local node is running " + l.network + ", not " + root.activeNetwork
+            if (node.reachable !== true) return "Local node: " + (node.error || "not answering yet")
+            return "Local node · height " + node.height
+                + (node.synced ? " · synced" : node.targetHeight > node.height
+                   ? " / " + node.targetHeight + " · syncing" : " · waiting for peers")
+        }
+        return node.reachable === true
+            ? ("Reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") + " · " + (node.rttMs || 0) + "ms")
+            : ("Node: " + (node.error || "unknown"))
+    }
+    function nodeChip() {
+        var local = node.mode === "local"
+        if (node.reachable === true)
+            return (local ? "local node " : "node " + (node.route || "") + " ") + (node.rttMs || 0) + "ms"
+        if (node.reachable === false) return local ? "local node " + ((node.local || {}).state || "unavailable") : "node unreachable"
+        return ""
+    }
+    function manageLocalNode() {
+        root.nodeIntentNote = ""
+        logos.request("monero.node.configure", ({ network: root.activeNetwork }), function (res) {
+            if (res.ok || res.error === "cancelled") return
+            root.nodeIntentNote = res.error === "unavailable"
+                ? "The Monero node app is not installed."
+                : "That request did not go through (" + res.error + ")."
+        })
     }
     function parseQr(s) { try { return s ? JSON.parse(s) : null } catch (e) { return null } }
     function qrRuns(qr) {
@@ -240,7 +282,7 @@ Item {
                     : "No wallet open")
             }
             LogosText { objectName: "nodeChip"; textFormat: Text.PlainText; font.pixelSize: 12; color: Theme.palette.textSecondary
-                        text: node.reachable === true ? ("node " + (node.route || "") + " " + (node.rttMs || 0) + "ms") : (node.reachable === false ? "node unreachable" : "") }
+                        text: root.nodeChip() }
 
             // Badges, not hand-rolled Rectangles, and coloured the way the EVM wallet colours
             // its chain chip: the live network is `success`, every test network `accentOrange`.
@@ -769,11 +811,11 @@ Item {
                     // node was unchangeable from the app.
                     LogosText { text: "Node"; font.pixelSize: 16 }
                     LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
-                                text: node.reachable === true
-                                      ? ("Reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") + " · " + (node.rttMs || 0) + "ms")
-                                      : ("Node: " + (node.error || "unknown")) }
+                                text: root.nodeLine() }
                     LogosText { objectName: "settingsNodeUrl"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true; color: Theme.palette.textSecondary
-                                text: "Address: " + (root.nodeCfg.url || "—") }
+                                text: "Address: " + (root.nodeCfg.mode === "local"
+                                                     ? "the node on this device" + ((node.local || {}).rpcUrl ? " (" + node.local.rpcUrl + ")" : "")
+                                                     : (root.nodeCfg.url || "—")) }
                     LogosText { textFormat: Text.PlainText; color: Theme.palette.textSecondary
                                 text: "Network: " + (status.activeNetwork || "") }
                     LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textTertiary
@@ -903,10 +945,10 @@ Item {
     LogosDialog {
         id: nodeSheet
         objectName: "nodeSheet"
-        title: "Remote node"
+        title: "Node"
         anchors.centerIn: parent
         width: Math.min(parent.width - 40, 720)
-        onOpened: root.resetNodeForm()
+        onOpened: { root.resetNodeForm(); backend.refreshLocalNode() }
         contentItem: ColumnLayout {
             // Named so a test can assert REACHABILITY, not just that the fields exist:
             // findByProperty walks the whole tree ignoring visibility, so an assertion on
@@ -914,15 +956,47 @@ Item {
             // wallet — which is the exact bug this page was moved here to fix.
             objectName: "walletsNodePage"
             spacing: 8
-            LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
-                        text: node.reachable === true
-                              ? ("Reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") + " · " + (node.rttMs || 0) + "ms")
-                              : ("Node: " + (node.error || "unknown")) }
+            LogosText { objectName: "nodeSheetStatus"; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
+                        text: root.nodeLine() }
             LogosText { textFormat: Text.PlainText; color: Theme.palette.textSecondary
                         text: "Network: " + (networks.active || "?") + " — the node is stored per network." }
+            RowLayout {
+                visible: root.localOffered
+                spacing: 10
+                LogosText { text: "Connect to"; color: Theme.palette.textSecondary }
+                LogosComboBox {
+                    objectName: "nodeModeBox"
+                    model: ["A remote node", "The node on this device"]
+                    currentIndex: root.ndMode === "local" ? 1 : 0
+                    onActivated: function(index) { root.ndMode = index === 1 ? "local" : "remote" }
+                }
+            }
+            ColumnLayout {
+                objectName: "localNodePane"
+                visible: root.ndMode === "local"
+                Layout.fillWidth: true
+                spacing: 6
+                LogosText { objectName: "localNodeAddress"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
+                            text: "Address: " + (root.localNode.rpcUrl || "—") }
+                LogosText { objectName: "localNodeState"; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
+                            text: "Node on this device: " + (root.localNode.available === true
+                                  ? ((root.localNode.status || {}).state || "unknown") : (root.localNode.error || "not available")) }
+                LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textTertiary
+                            text: "Trusted and never proxied: it is your own node. Start it before opening a wallet, "
+                                  + "which connects to its node when it opens. Your remote node settings are kept." }
+                LogosButton { objectName: "manageLocalNodeButton"; text: "Manage local node…"; onClicked: root.manageLocalNode() }
+                LogosText { visible: text !== ""; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true
+                            color: Theme.palette.error; text: root.nodeIntentNote }
+                // Follows the node while the user starts it elsewhere. Only while it is there to ask:
+                // an absent module costs 1.5 s per read.
+                Timer { interval: 3000; repeat: true
+                        running: nodeSheet.opened && root.ndMode === "local" && root.localNode.available === true
+                        onTriggered: backend.refreshLocalNode() }
+            }
             GridLayout {
                 columns: 2; columnSpacing: 10; rowSpacing: 6
                 Layout.fillWidth: true
+                visible: root.ndMode === "remote"
                 enabled: root.ready
 
                 LogosText { text: "Address"; color: Theme.palette.textSecondary }
@@ -969,14 +1043,16 @@ Item {
                     // restore, change password. The backend refuses a node write for the
                     // whole of one, and offering a button that cannot work is how the
                     // password-wipe above became reachable.
-                    enabled: root.ready && !root.busy && ndHost.text !== ""
+                    enabled: root.ready && !root.busy && (root.ndMode === "local" || ndHost.text !== "")
                              && (root.nodeFormNetwork === "" || root.nodeFormNetwork === root.activeNetwork)
                     onClicked: {
+                        // The remote fields are sent in local mode too: the record keeps them.
                         var cfg = { url: ndHost.text.trim(),
                                     username: ndUser.text.trim(),
                                     proxy: ndProxy.text.trim(),
                                     proxyRequired: ndProxyReq.checked,
-                                    trusted: ndTrusted.checked }
+                                    trusted: ndTrusted.checked,
+                                    mode: root.ndMode }
                         // Omitting password KEEPS the stored one; "" clears it.
                         if (ndPass.text !== "") cfg.password = ndPass.text
                         else if (root.clearNodePassword) cfg.password = ""

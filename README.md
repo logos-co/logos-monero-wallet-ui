@@ -44,8 +44,19 @@ The app **provides** both Monero capabilities so another app can reach this wall
 | `monero.wallet.unlock` | `{ wallet }` — opens the password sheet for that wallet, answers when the open settles |
 | `monero.accounts.manage` | `handoff: true` — brings wallet management up and leaves the user here |
 
-It **uses** neither: managing wallets is a screen here, not a trip to a second app. A self-provided
+Of those two it **uses** neither: managing wallets is a screen here, not a trip to a second app. A self-provided
 intent would dispatch to itself anyway, and the shell raises a chooser for every other case.
+
+It **uses** `monero.node.configure`: the node sheet's **Manage local node…** hands off to the
+app that runs the local node (`monerod_ui`).
+
+## Local node
+
+When `monerod_module` can serve the active network, the node sheet offers **Connect to: The node on
+this device**. The wallet then dials that node's loopback URL, trusted and never proxied, and the
+remote settings stay stored for a switch back. Without `monerod_module` installed the choice is not
+shown. Start the node before opening a wallet: the engine connects when a wallet opens.
+`doctests/assert_local_node.py` drives both cases (`--absent` for the second).
 
 ## QR
 
