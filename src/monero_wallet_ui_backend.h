@@ -35,6 +35,7 @@ public:
     QString revealViewKey(QString password) override;
     void closeWallet() override;
     void saveNodeConfig(QString configJson) override;
+    void refreshLocalNode() override;
 
     // Receiving.
     void createSubaddress(QString label) override;

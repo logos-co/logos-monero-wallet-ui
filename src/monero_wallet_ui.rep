@@ -42,8 +42,11 @@ class MoneroWalletUi
     // The BIP-21-style payment URI for the selection: monero:<address>[?tx_amount=...].
     PROP(QString receiveUri="" READONLY)
     // The active network's node, with the RPC password redacted to hasPassword:
-    // { url, username, hasPassword, proxy, proxyRequired, trusted, source, network }
+    // { url, username, hasPassword, proxy, proxyRequired, trusted, source, network, mode }
     PROP(QString nodeConfigJson="{}" READONLY)
+    // Whether monerod_module can serve the active network, read when the node sheet opens:
+    // { available, rpcUrl, status: { state, network, height, targetHeight, ... }, error }
+    PROP(QString localNodeJson="{}" READONLY)
     // { rows: [...] } newest first, amounts as atomic strings + XMR strings.
     PROP(QString historyJson="" READONLY)
     // The lifecycle job in flight, "" when none. Answered by lastJobJson when it settles.
@@ -76,6 +79,7 @@ class MoneroWalletUi
     // Point the active network at a different daemon. CUSTODIAN, and refused while a wallet is
     // open: wallet2 binds its daemon at init. Omit "password" to keep the stored one.
     SLOT(void saveNodeConfig(QString configJson))
+    SLOT(void refreshLocalNode())
 
     // ---- receiving ----
     SLOT(void createSubaddress(QString label))

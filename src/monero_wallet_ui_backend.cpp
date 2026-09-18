@@ -81,6 +81,12 @@ void MoneroWalletUiBackend::saveNodeConfig(QString configJson) {
     loadStatus();
 }
 
+// Not on the read poll: with monerod_module absent this costs the node module's 1.5 s bound.
+void MoneroWalletUiBackend::refreshLocalNode() {
+    const QString r = modules().monero_wallet_backend.local_node();
+    setLocalNodeJson(r.isEmpty() ? QStringLiteral("{}") : stripOk(r));
+}
+
 // The wallet registry and the network list: what the Wallets screen renders while nothing is open.
 void MoneroWalletUiBackend::loadRegistry() {
     auto &b = modules().monero_wallet_backend;

@@ -32,6 +32,9 @@
       "handoff": true
     }
   ],
+  "uses": [
+    { "intent": "monero.node.configure", "cardinality": "single" }
+  ],
   "codegen": {
     "rep": "src/monero_wallet_ui.rep"
   },
