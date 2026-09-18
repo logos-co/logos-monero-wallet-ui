@@ -4330,6 +4330,37 @@
         "type": "github"
       }
     },
+    "logos-monero-nix": {
+      "inputs": {
+        "logos-nix": [
+          "monero_wallet_backend",
+          "monero_node_module",
+          "monerod_module",
+          "logos-module-builder",
+          "logos-nix"
+        ],
+        "nixpkgs": [
+          "monero_wallet_backend",
+          "monero_node_module",
+          "monerod_module",
+          "logos-module-builder",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1789756471,
+        "narHash": "sha256-oYyha+9jIqV1gPV0TlqOX85rtFlul8gLMuztcwQ6Lyg=",
+        "owner": "logos-co",
+        "repo": "logos-monero-nix",
+        "rev": "f981568d2238c6f37f34aca5a45563ec326447dd",
+        "type": "github"
+      },
+      "original": {
+        "owner": "logos-co",
+        "repo": "logos-monero-nix",
+        "type": "github"
+      }
+    },
     "logos-nix": {
       "inputs": {
         "nixpkgs": "nixpkgs",
@@ -11355,14 +11386,15 @@
         "logos-module-builder": [
           "monero_wallet_backend",
           "logos-module-builder"
-        ]
+        ],
+        "monerod_module": "monerod_module"
       },
       "locked": {
-        "lastModified": 1788927408,
-        "narHash": "sha256-gBgpVKZc6xejVv0tTcsH+vVkcs4fuoY3GNl/Iova15k=",
+        "lastModified": 1789759838,
+        "narHash": "sha256-81zzawtFBuCbtOTLdrHF37ynG2xNyx/VntPHN/2ltfo=",
         "owner": "logos-co",
         "repo": "logos-monero-node-module",
-        "rev": "8ff66d08aa3d702921b94bbb99f7fb59863caa53",
+        "rev": "ddaec9337b4d1c4d1ccc4cea6fdd4163b2dd6e0f",
         "type": "github"
       },
       "original": {
@@ -11380,11 +11412,11 @@
         "monero_wallet_core_module": "monero_wallet_core_module"
       },
       "locked": {
-        "lastModified": 1789677227,
-        "narHash": "sha256-d/s5WhFyyCXaaVt4IqXr7tR6M8N4HFF5Wj21+c27l6g=",
+        "lastModified": 1789762096,
+        "narHash": "sha256-ugiAMZfZdmN2E3rSoyi5liMwXYQ9ESyREOuPB/EgbxU=",
         "owner": "logos-co",
         "repo": "logos-monero-wallet-backend",
-        "rev": "0d381bcca2a40c924d86388d143d1328f2f0a2d8",
+        "rev": "7e54bb4c8888edb62f855bbe38d824e040a3048e",
         "type": "github"
       },
       "original": {
@@ -11416,6 +11448,29 @@
       "original": {
         "owner": "logos-co",
         "repo": "logos-monero-wallet-core-module",
+        "type": "github"
+      }
+    },
+    "monerod_module": {
+      "inputs": {
+        "logos-module-builder": [
+          "monero_wallet_backend",
+          "monero_node_module",
+          "logos-module-builder"
+        ],
+        "logos-monero-nix": "logos-monero-nix"
+      },
+      "locked": {
+        "lastModified": 1789756892,
+        "narHash": "sha256-HDPudd/DPfSXbrqAqIOigDCm8tF1JDzHBLnYAy48PJA=",
+        "owner": "logos-co",
+        "repo": "logos-monerod-module",
+        "rev": "1ea896a8ad34ec7547d8751f829a791660b3880c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "logos-co",
+        "repo": "logos-monerod-module",
         "type": "github"
       }
     },
