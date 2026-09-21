@@ -45,14 +45,14 @@ void MoneroWalletUiBackend::clearAndRefresh() {
 }
 
 void MoneroWalletUiBackend::onContextReady() {
-    QObject::connect(&m_readPoll, &QTimer::timeout, [this] { loadStatus(); loadBalances(); });
+    QObject::connect(&m_readPoll, &QTimer::timeout, [this] { loadStatus(); loadBalances(); syncHistoryToHeight(); });
     QObject::connect(&m_jobPoll, &QTimer::timeout, [this] { pollJob(); });
     QObject::connect(&m_sendPoll, &QTimer::timeout, [this] { pollSend(); });
     // Subscribe first, then reconcile; never call out synchronously from an event callback
     // (it runs on the IPC read stack and would block the thread delivering its own reply).
     auto &b = modules().monero_wallet_backend;
     b.onWallet_state_changed([this](QString) { QTimer::singleShot(0, [this] { refresh(); }); });
-    b.onSync_progress([this](QString) { QTimer::singleShot(0, [this] { loadStatus(); }); });
+    b.onSync_progress([this](QString) { QTimer::singleShot(0, [this] { loadStatus(); syncHistoryToHeight(); }); });
     b.onBalance_changed([this](QString) { QTimer::singleShot(0, [this] { loadBalances(); }); });
     b.onSend_status_changed([this](QString, QString) { QTimer::singleShot(0, [this] { pollSend(); }); });
     m_readPoll.start(kReadPollMs);
@@ -172,12 +172,42 @@ void MoneroWalletUiBackend::refresh() {
     setDataLoading(false);
 }
 
-void MoneroWalletUiBackend::refreshHistory() {
+void MoneroWalletUiBackend::refreshHistory() { readHistory(false); }
+
+// A row's `confirmations` and `pending` are functions of the scanned height, so Activity goes
+// stale on every block — not only on the wallet-state and send-settled events that refreshed it
+// before. Without this a send confirmed minutes later still read "pending · 0 (in the pool)" for
+// as long as the tab stayed open, while the balance beside it had already moved.
+void MoneroWalletUiBackend::syncHistoryToHeight() {
     const QJsonObject st = parse(statusJson());
     const QString state = st.value("state").toString();
-    if (state != "ready" && state != "syncing") { setHistoryJson({}); return; }
+    if (st.value("busy").toBool() || (state != "ready" && state != "syncing")) return;
+    // A busy engine sends no heights at all, and it is the one to stay away from: history() is
+    // the read with no timed lock behind it, so it would block this plugin for the whole ~15 s
+    // a build holds the wallet. No height, or an unmoved one, means nothing to re-read.
+    const QJsonValue wh = st.value("walletHeight");
+    if (!wh.isDouble() || wh.toVariant().toLongLong() == m_historyHeight) return;
+    readHistory(true);
+}
+
+// `quiet` is a re-read nobody asked for: it keeps the rows already on screen rather than blanking
+// the tab over a transient unread, and stays off the error line.
+void MoneroWalletUiBackend::readHistory(bool quiet) {
+    const QJsonObject st = parse(statusJson());
+    const QString state = st.value("state").toString();
+    if (state != "ready" && state != "syncing") {
+        if (!quiet) { setHistoryJson({}); m_historyHeight = -1; }
+        return;
+    }
     const QString r = modules().monero_wallet_backend.history();
-    setHistoryJson(ok(r, "history") ? stripOk(r) : QString());
+    if (quiet ? parse(r).value("ok").toBool() : ok(r, "history")) {
+        setHistoryJson(stripOk(r));
+        // Watermarked only on success, so a read that failed is tried again on the next tick.
+        m_historyHeight = st.value("walletHeight").toVariant().toLongLong();
+    } else if (!quiet) {
+        setHistoryJson({});
+        m_historyHeight = -1;
+    }
 }
 
 // ---- wallet management -------------------------------------------------------------------

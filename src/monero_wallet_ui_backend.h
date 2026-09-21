@@ -63,6 +63,8 @@ private:
     void publishReceiveSelection();
     void loadBalances();
     void loadReceive();
+    void readHistory(bool quiet);
+    void syncHistoryToHeight();
     void track(const QString &reply, const QString &kind);
     void pollJob();
     void pollSend();
@@ -71,6 +73,8 @@ private:
     QTimer m_readPoll;
     QTimer m_jobPoll;
     QTimer m_sendPoll;
+    // The scanned height the rows on screen describe; -1 is "none read".
+    qint64 m_historyHeight = -1;
     QString m_pendingKind;
     QString m_lastQrFor;
     QString m_receiveAmount;
