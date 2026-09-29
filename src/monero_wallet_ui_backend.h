@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
@@ -75,6 +76,8 @@ private:
     QTimer m_sendPoll;
     // The scanned height the rows on screen describe; -1 is "none read".
     qint64 m_historyHeight = -1;
+    QElapsedTimer m_historyReadAge;
+    bool m_historyHasPending = false;
     QString m_pendingKind;
     QString m_lastQrFor;
     QString m_receiveAmount;
