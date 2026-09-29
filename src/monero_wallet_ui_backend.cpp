@@ -15,7 +15,13 @@ QString compact(const QJsonValue &v) {
     return {};
 }
 QString stripOk(const QString &reply) { QJsonObject o = parse(reply); o.remove("ok"); return compact(o); }
+QString explainSendError(const QString &error) {
+    if (!error.contains(QStringLiteral("double spend"), Qt::CaseInsensitive)) return error;
+    return error + QStringLiteral("\nThe network rejected this send because its funds were already used. "
+                                  "Check Activity and your available balance before trying again.");
+}
 constexpr int kReadPollMs = 3000;
+constexpr int kPendingHistoryPollMs = 15000;
 constexpr int kJobPollMs = 750;
 constexpr int kSendPollMs = 700;
 }
@@ -174,20 +180,19 @@ void MoneroWalletUiBackend::refresh() {
 
 void MoneroWalletUiBackend::refreshHistory() { readHistory(false); }
 
-// A row's `confirmations` and `pending` are functions of the scanned height, so Activity goes
-// stale on every block — not only on the wallet-state and send-settled events that refreshed it
-// before. Without this a send confirmed minutes later still read "pending · 0 (in the pool)" for
-// as long as the tab stayed open, while the balance beside it had already moved.
+// Confirmations change with the scanned height, while an outgoing transaction can leave the
+// pool or fail without a new block. Re-read on either a new height or a short interval while a
+// pending row is visible. A busy engine sends no heights; history() has no timed lock, so skip it.
 void MoneroWalletUiBackend::syncHistoryToHeight() {
     const QJsonObject st = parse(statusJson());
     const QString state = st.value("state").toString();
     if (st.value("busy").toBool() || (state != "ready" && state != "syncing")) return;
-    // A busy engine sends no heights at all, and it is the one to stay away from: history() is
-    // the read with no timed lock behind it, so it would block this plugin for the whole ~15 s
-    // a build holds the wallet. No height, or an unmoved one, means nothing to re-read.
     const QJsonValue wh = st.value("walletHeight");
-    if (!wh.isDouble() || wh.toVariant().toLongLong() == m_historyHeight) return;
-    readHistory(true);
+    if (!wh.isDouble()) return;
+    const bool heightChanged = wh.toVariant().toLongLong() != m_historyHeight;
+    const bool pendingDue = m_historyHasPending
+        && (!m_historyReadAge.isValid() || m_historyReadAge.elapsed() >= kPendingHistoryPollMs);
+    if (heightChanged || pendingDue) readHistory(true);
 }
 
 // `quiet` is a re-read nobody asked for: it keeps the rows already on screen rather than blanking
@@ -196,17 +201,29 @@ void MoneroWalletUiBackend::readHistory(bool quiet) {
     const QJsonObject st = parse(statusJson());
     const QString state = st.value("state").toString();
     if (state != "ready" && state != "syncing") {
-        if (!quiet) { setHistoryJson({}); m_historyHeight = -1; }
+        if (!quiet) { setHistoryJson({}); m_historyHeight = -1; m_historyHasPending = false; m_historyReadAge.invalidate(); }
         return;
     }
     const QString r = modules().monero_wallet_backend.history();
     if (quiet ? parse(r).value("ok").toBool() : ok(r, "history")) {
-        setHistoryJson(stripOk(r));
+        const QString rowsJson = stripOk(r);
+        if (rowsJson != historyJson()) setHistoryJson(rowsJson);
+        m_historyHasPending = false;
+        for (const QJsonValue &row : parse(r).value("rows").toArray()) {
+            const QJsonObject tx = row.toObject();
+            if (tx.value("pending").toBool() && !tx.value("failed").toBool()) {
+                m_historyHasPending = true;
+                break;
+            }
+        }
+        m_historyReadAge.restart();
         // Watermarked only on success, so a read that failed is tried again on the next tick.
         m_historyHeight = st.value("walletHeight").toVariant().toLongLong();
     } else if (!quiet) {
         setHistoryJson({});
         m_historyHeight = -1;
+        m_historyHasPending = false;
+        m_historyReadAge.invalidate();
     }
 }
 
@@ -333,10 +350,10 @@ void MoneroWalletUiBackend::pollSend() {
     if (id.isEmpty()) { m_sendPoll.stop(); return; }
     const QString r = modules().monero_wallet_backend.send_status(id);
     const QJsonObject o = parse(r);
-    if (!o.value("ok").toBool()) { setSendError(o.value("error").toString()); m_sendPoll.stop(); return; }
+    if (!o.value("ok").toBool()) { setSendError(explainSendError(o.value("error").toString())); m_sendPoll.stop(); return; }
     setSendStatusJson(stripOk(r));
     const QString state = o.value("state").toString();
-    if (state == "failed" || state == "unknown") setSendError(o.value("error").toString());
+    if (state == "failed" || state == "unknown") setSendError(explainSendError(o.value("error").toString()));
     if (state == "sent" || state == "failed" || state == "cancelled" || state == "unknown") {
         m_sendPoll.stop();
         // An unknown outcome may or may not have moved money, so refresh the same as a send:

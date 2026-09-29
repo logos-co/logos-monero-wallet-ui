@@ -683,8 +683,8 @@ Item {
                                                   ? ("to yourself · fee " + modelData.feeXmr + " XMR")
                                                   : ((modelData.direction === "in" ? "+" : "−") + modelData.amountXmr + " XMR") }
                                 LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary
-                                            text: modelData.pending ? "pending"
-                                                  : (modelData.failed ? "failed"
+                                            text: modelData.failed ? "failed"
+                                                  : (modelData.pending ? "pending"
                                                   : (modelData.confirmations + " conf" + (modelData.confirmations < 10 ? " (locked)" : ""))) }
                                 LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary; font.pixelSize: 11
                                             text: root.whenOf(modelData.timestamp) }
@@ -711,7 +711,8 @@ Item {
                                             text: modelData.direction === "in" ? "—  (paid by the sender)" : modelData.feeXmr + " XMR" }
                                 LogosText { text: "Confirmations"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11
-                                            text: modelData.pending ? "0 (in the pool)" : String(modelData.confirmations) }
+                                            text: modelData.failed ? "— (failed)"
+                                                  : (modelData.pending ? "0 (unconfirmed)" : String(modelData.confirmations)) }
                                 LogosText { text: "Blockheight"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { textFormat: Text.PlainText; font.pixelSize: 11
                                             text: modelData.height ? String(modelData.height) : "—" }
