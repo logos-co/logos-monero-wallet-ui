@@ -167,7 +167,6 @@ Item {
         ndUser.text = root.nodeCfg.username || ""
         ndProxy.text = root.nodeCfg.proxy || ""
         ndProxyReq.checked = !!root.nodeCfg.proxyRequired
-        ndTrusted.checked = !!root.nodeCfg.trusted
         root.ndMode = root.nodeCfg.mode || "remote"
         root.nodeIntentNote = ""
         ndPass.text = ""
@@ -1047,13 +1046,9 @@ Item {
                             text: root.nodeCfg.proxy || "" }
                 LogosText { text: ""; opacity: 0 }
                 // LogosCheckbox, not CheckBox: the raw control colours its own label, and
-                // under the dark theme that is near-black on near-black. LogosText is the
-                // rule everywhere else in this view; these two were the exception.
+                // under the dark theme that is near-black on near-black.
                 LogosCheckbox { id: ndProxyReq; objectName: "nodeProxyRequiredBox"; text: "Require the proxy (refuse to connect without it)"
                                 checked: !!root.nodeCfg.proxyRequired }
-                LogosText { text: ""; opacity: 0 }
-                LogosCheckbox { id: ndTrusted; objectName: "nodeTrustedBox"; text: "Trusted daemon"
-                                checked: !!root.nodeCfg.trusted }
             }
             RowLayout {
                 LogosButton {
@@ -1073,7 +1068,7 @@ Item {
                                     username: ndUser.text.trim(),
                                     proxy: ndProxy.text.trim(),
                                     proxyRequired: ndProxyReq.checked,
-                                    trusted: ndTrusted.checked,
+                                    trusted: false,
                                     mode: root.ndMode }
                         // Omitting password KEEPS the stored one; "" clears it.
                         if (ndPass.text !== "") cfg.password = ndPass.text
