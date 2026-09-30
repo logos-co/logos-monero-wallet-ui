@@ -823,6 +823,23 @@ Item {
                                 text: "Close this wallet to change either one: the engine binds its daemon when a wallet "
                                       + "opens. The node form and the network picker are both on the Wallets screen." }
 
+                    LogosText { text: "Repair balance"; font.pixelSize: 16 }
+                    LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true
+                                color: Theme.palette.textSecondary
+                                text: "If a send is rejected as a double spend while the balance still looks available, "
+                                      + "recheck which outputs are spent. This shares wallet key images with the node, "
+                                      + "so it is available only while connected to a trusted node on this device." }
+                    LogosButton { objectName: "recheckSpentOutputsButton"
+                                  text: "Recheck spent outputs"
+                                  enabled: !root.busy && root.engineConnected && status.trustedDaemon === true
+                                  onClicked: backend.recheckSpentOutputs() }
+                    LogosText { visible: root.nodeCfg.mode !== "local"; textFormat: Text.PlainText
+                                wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textTertiary
+                                text: "To use this, close the wallet, select the node on this device, and reopen the wallet." }
+                    LogosText { visible: root.lastJob.kind === "recheck spent outputs" && root.lastJob.state === "done"
+                                textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true
+                                text: "Spent outputs rechecked. The balance and activity have been refreshed." }
+
                     LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary
                                 text: "Engine: monero_c " + (status.libraryVersion || "") + " (LGPL-3.0, dynamically linked)" }
                     Item { Layout.fillHeight: true }

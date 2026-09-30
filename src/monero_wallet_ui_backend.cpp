@@ -18,7 +18,8 @@ QString stripOk(const QString &reply) { QJsonObject o = parse(reply); o.remove("
 QString explainSendError(const QString &error) {
     if (!error.contains(QStringLiteral("double spend"), Qt::CaseInsensitive)) return error;
     return error + QStringLiteral("\nThe network rejected this send because its funds were already used. "
-                                  "Check Activity and your available balance before trying again.");
+                                  "Check Activity and your available balance. If the funds still look available,\n"
+                                  "use Settings > Recheck spent outputs with a trusted local node before trying again.");
 }
 constexpr int kReadPollMs = 3000;
 constexpr int kPendingHistoryPollMs = 15000;
@@ -306,6 +307,11 @@ QString MoneroWalletUiBackend::revealViewKey(QString password) {
 void MoneroWalletUiBackend::closeWallet() {
     setLastError({});
     track(modules().monero_wallet_backend.close_wallet(), "close");
+}
+
+void MoneroWalletUiBackend::recheckSpentOutputs() {
+    setLastError({});
+    track(modules().monero_wallet_backend.rescan_spent(), "recheck spent outputs");
 }
 
 // ---- spending ----------------------------------------------------------------------------

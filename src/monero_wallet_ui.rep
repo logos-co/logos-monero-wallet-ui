@@ -22,7 +22,7 @@ class MoneroWalletUi
     // A wallet lifecycle job (open/create/restore/close/change password) is in flight.
     PROP(bool busy=false READONLY)
     // wallet_status(): { state, wallet, network, address, connected, synchronized,
-    //                    walletHeight, daemonHeight, syncPercent, watchOnly, activeNetwork }
+    //                    walletHeight, daemonHeight, syncPercent, watchOnly, trustedDaemon, activeNetwork }
     PROP(QString statusJson="{}" READONLY)
     // { networks: [...], active }
     PROP(QString networksJson="{}" READONLY)
@@ -76,6 +76,8 @@ class MoneroWalletUi
     SLOT(QString revealSeed(QString password))
     SLOT(QString revealViewKey(QString password))
     SLOT(void closeWallet())
+    // Recheck key-image spend state against the trusted local daemon.
+    SLOT(void recheckSpentOutputs())
     // Point the active network at a different daemon. CUSTODIAN, and refused while a wallet is
     // open: wallet2 binds its daemon at init. Omit "password" to keep the stored one.
     SLOT(void saveNodeConfig(QString configJson))

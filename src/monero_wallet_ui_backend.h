@@ -35,6 +35,7 @@ public:
     QString revealSeed(QString password) override;
     QString revealViewKey(QString password) override;
     void closeWallet() override;
+    void recheckSpentOutputs() override;
     void saveNodeConfig(QString configJson) override;
     void refreshLocalNode() override;
 
