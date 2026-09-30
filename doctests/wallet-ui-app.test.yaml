@@ -195,12 +195,19 @@ sections:
               action: wait_for
               texts: ["No wallet open", "Wallets"]
               timeout: 30000
-            - name: "Select Mainnet"
-              action: click_object
+            - name: "Allow the completed close job to reach the UI poller"
+              action: sleep
+              ms: 1500
+            - name: "The network picker is ready after closing"
+              action: expect_property
               find_value: "networkBox"
-            - name: "Activate Mainnet"
-              action: click
-              target: "mainnet"
+              property: "enabled"
+              value: true
+            - name: "Select Mainnet"
+              action: call_method
+              find_value: "moneroWalletRoot"
+              method: "selectNetwork"
+              args: ["mainnet"]
             - name: "Mainnet has no Stagenet wallet to open"
               action: wait_for
               texts: ["No wallets on mainnet yet"]
@@ -235,7 +242,7 @@ sections:
               find_value: "openButton"
             - name: "The backend refuses the wrong network before opening"
               action: wait_for
-              texts: ["Select stagenet before opening it"]
+              texts: ["open: This wallet belongs to stagenet. Select stagenet before opening it."]
               timeout: 15000
             - name: "The Stagenet balance is never shown under Mainnet"
               action: expect_property
@@ -243,11 +250,10 @@ sections:
               property: "walletOpen"
               value: false
             - name: "Select Stagenet again"
-              action: click_object
-              find_value: "networkBox"
-            - name: "Activate Stagenet"
-              action: click
-              target: "stagenet"
+              action: call_method
+              find_value: "moneroWalletRoot"
+              method: "selectNetwork"
+              args: ["stagenet"]
             - name: "Wait for the Stagenet wallet list"
               action: wait_for
               texts: ["doctest", "stagenet"]

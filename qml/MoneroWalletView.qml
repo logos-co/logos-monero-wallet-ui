@@ -154,6 +154,11 @@ Item {
     function selectTab(i) { root.page = i; tabs.currentIndex = i }
     // The wallet forms are sheets, so there is no page index to select any more. One named
     // entry point instead — for a driver, and for the intent handler above.
+    function selectNetwork(network) {
+        if (root.ready && !root.busy && !root.walletOpen)
+            backend.setActiveNetwork(network)
+    }
+
     function openSheet(which) {
         if (which === "open")   { openWalletSheet.open(); return }
         if (which === "create") { createSheet.open();  return }
@@ -379,7 +384,7 @@ Item {
                     enabled: root.ready && !root.busy
                     model: networks.networks || []
                     currentIndex: Math.max(0, (networks.networks || []).indexOf(networks.active || ""))
-                    onActivated: backend.setActiveNetwork(currentText)
+                    onActivated: root.selectNetwork(currentText)
                 }
             }
 
