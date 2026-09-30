@@ -50,6 +50,12 @@ intent would dispatch to itself anyway, and the shell raises a chooser for every
 It **uses** `monero.node.configure`: the node sheet's **Manage local node…** hands off to the
 app that runs the local node (`monerod_ui`).
 
+## Networks
+
+The Wallets screen lists wallets for the selected network. Select Stagenet to open a Stagenet wallet;
+opening it by name while Mainnet is selected is refused. Unverified wallet files remain visible until
+the engine checks their network when opened. The badge and Settings show the open wallet's network.
+
 ## Local node
 
 When `monerod_module` can serve the active network, the node sheet offers **Connect to: The node on

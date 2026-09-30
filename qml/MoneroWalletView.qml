@@ -110,6 +110,10 @@ Item {
     // one network's daemon over another's: the form repopulates when the new config arrives, and
     // Save is refused until it has.
     readonly property string activeNetwork: ready ? (networks.active || "") : ""
+    readonly property string displayedNetwork: status.wallet ? (status.network || status.activeNetwork || "") : activeNetwork
+    readonly property var walletsOnNetwork: wallets.filter(function(wallet) {
+        return !wallet.network || wallet.network === root.activeNetwork
+    })
     // The network the fields actually hold, taken from the CONFIG rather than from whatever is
     // active now: on a switch the new config arrives a poll later, and claiming the new network
     // while still showing the old one's daemon is the mis-save this exists to prevent.
@@ -297,8 +301,8 @@ Item {
             }
             LogosBadge {
                 objectName: "networkChip"
-                text: (status.activeNetwork || status.network || networks.active || "—").toUpperCase()
-                color: (status.activeNetwork || status.network || networks.active) === "mainnet"
+                text: (root.displayedNetwork || "—").toUpperCase()
+                color: root.displayedNetwork === "mainnet"
                        ? Theme.palette.success : Theme.palette.accentOrange
             }
             // Closing is a session action, so it belongs in the session's own chrome rather than
@@ -398,23 +402,23 @@ Item {
                 LogosText {
                     objectName: "walletsEmpty"
                     anchors.centerIn: parent
-                    visible: root.wallets.length === 0
+                    visible: root.walletsOnNetwork.length === 0
                     color: Theme.palette.textSecondary
-                    text: "No wallets yet"
+                    text: "No wallets on " + (root.activeNetwork || "this network") + " yet"
                 }
 
                 ListView {
                     anchors.fill: parent
                     clip: true
                     spacing: Theme.spacing.tiny
-                    model: root.wallets
+                    model: root.walletsOnNetwork
                     delegate: LogosFrame {
                         width: ListView.view.width
                         contentItem: RowLayout {
                             spacing: Theme.spacing.small
                             // A wallet name is user-typed, so PlainText: LogosText is AutoText.
                             LogosText { text: modelData.name; textFormat: Text.PlainText }
-                            LogosText { text: modelData.network || ""; textFormat: Text.PlainText
+                            LogosText { text: modelData.network || "Network checked when opened"; textFormat: Text.PlainText
                                         color: Theme.palette.textTertiary }
                             LogosBadge {
                                 visible: !!modelData.viewOnly
@@ -818,7 +822,7 @@ Item {
                                                      ? "the node on this device" + ((node.local || {}).rpcUrl ? " (" + node.local.rpcUrl + ")" : "")
                                                      : (root.nodeCfg.url || "—")) }
                     LogosText { textFormat: Text.PlainText; color: Theme.palette.textSecondary
-                                text: "Network: " + (status.activeNetwork || "") }
+                                text: "Network: " + root.displayedNetwork }
                     LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textTertiary
                                 text: "Close this wallet to change either one: the engine binds its daemon when a wallet "
                                       + "opens. The node form and the network picker are both on the Wallets screen." }
