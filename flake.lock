@@ -11422,11 +11422,11 @@
         "monero_wallet_core_module": "monero_wallet_core_module"
       },
       "locked": {
-        "lastModified": 1790781803,
+        "lastModified": 1790790615,
         "narHash": "sha256-vcaSCVHZCOW0z80qs4UqHt6Bw6rVxL3MkEiHa13+Qng=",
         "owner": "logos-co",
         "repo": "logos-monero-wallet-backend",
-        "rev": "fa9c5bdc348e513254512cbd8e50f1c69be0443e",
+        "rev": "769098441db339f7541ba8804722ae3f20614309",
         "type": "github"
       },
       "original": {
