@@ -507,7 +507,7 @@ Item {
                     ColumnLayout {
                         id: revCol; anchors.fill: parent; anchors.margins: 12; spacing: 4
                         LogosText { objectName: "sendState"; textFormat: Text.PlainText; text: "Status: " + (send.state || "") }
-                        LogosText { visible: send.state === "preparing"; text: "Building the transaction (fetching decoys)…" }
+                        LogosText { visible: send.state === "preparing"; text: "Checking the wallet and building the transaction…" }
                         LogosText { visible: !!send.preview; textFormat: Text.PlainText; text: "To: " + (send.preview ? send.preview.destination : "") ; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true }
                         LogosText { objectName: "previewAmount"; visible: !!send.preview; textFormat: Text.PlainText; text: "Amount: " + (send.preview ? send.preview.amountXmr : "") + " XMR" }
                         LogosText { objectName: "previewFee"; visible: !!send.preview; textFormat: Text.PlainText; text: "Fee: " + (send.preview ? send.preview.feeXmr : "") + " XMR" }
@@ -515,6 +515,9 @@ Item {
                         LogosText { visible: send.state === "sent"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
                                     text: send.txids ? ("Broadcast. txid: " + send.txids)
                                                      : "Broadcast. Its transaction id will appear in Activity once the wallet re-syncs." }
+                        LogosText { visible: send.state === "sent" && !!send.warning
+                                    textFormat: Text.PlainText; text: send.warning || ""; wrapMode: Text.Wrap
+                                    Layout.fillWidth: true; color: Theme.palette.warning }
                         RowLayout {
                             LogosButton { objectName: "confirmSendButton"; text: "Confirm and broadcast"; visible: send.state === "previewed"; onClicked: backend.confirmSend() }
                             LogosButton {
@@ -828,7 +831,8 @@ Item {
                                 color: Theme.palette.textSecondary
                                 text: "If a send is rejected as a double spend while the balance still looks available, "
                                       + "recheck which outputs are spent. This shares wallet key images with the node, "
-                                      + "so it is available only while connected to a trusted node on this device." }
+                                      + "so it is available only while connected to a trusted node on this device. "
+                                      + "The wallet also checks spent outputs before each send on that node." }
                     LogosButton { objectName: "recheckSpentOutputsButton"
                                   text: "Recheck spent outputs"
                                   enabled: !root.busy && root.engineConnected && status.trustedDaemon === true

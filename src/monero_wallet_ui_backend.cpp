@@ -360,6 +360,8 @@ void MoneroWalletUiBackend::pollSend() {
     setSendStatusJson(stripOk(r));
     const QString state = o.value("state").toString();
     if (state == "failed" || state == "unknown") setSendError(explainSendError(o.value("error").toString()));
+    const QString warning = o.value("warning").toString();
+    if (state == "sent" && !warning.isEmpty() && !lastError().contains(warning)) say(warning);
     if (state == "sent" || state == "failed" || state == "cancelled" || state == "unknown") {
         m_sendPoll.stop();
         // An unknown outcome may or may not have moved money, so refresh the same as a send:
