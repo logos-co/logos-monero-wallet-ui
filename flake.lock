@@ -11422,11 +11422,11 @@
         "monero_wallet_core_module": "monero_wallet_core_module"
       },
       "locked": {
-        "lastModified": 1790779782,
-        "narHash": "sha256-5wUSQZhUpFxxoQqoaDhzdrA/IQ0WLQ4FpFdHCj4VHiA=",
+        "lastModified": 1790781803,
+        "narHash": "sha256-vcaSCVHZCOW0z80qs4UqHt6Bw6rVxL3MkEiHa13+Qng=",
         "owner": "logos-co",
         "repo": "logos-monero-wallet-backend",
-        "rev": "2129d6b167eb0a7b50d90e63b57aea4a335d8392",
+        "rev": "fa9c5bdc348e513254512cbd8e50f1c69be0443e",
         "type": "github"
       },
       "original": {
@@ -11448,11 +11448,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790779609,
+        "lastModified": 1790781510,
         "narHash": "sha256-n6edL1aFbOFQEmQnph6kxcrEFn3T3ug7cIJgMHz8+t8=",
         "owner": "logos-co",
         "repo": "logos-monero-wallet-core-module",
-        "rev": "d008c15affd22a6d110dd6193fba3125a6501cb9",
+        "rev": "7fc923dcce9ac5d40db8dd30f658eb63849e7212",
         "type": "github"
       },
       "original": {
