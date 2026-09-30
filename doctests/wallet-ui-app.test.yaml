@@ -196,15 +196,11 @@ sections:
               texts: ["No wallet open", "Wallets"]
               timeout: 30000
             - name: "Select Mainnet"
-              action: set_property
+              action: click_object
               find_value: "networkBox"
-              property: "currentIndex"
-              value: 0
             - name: "Activate Mainnet"
-              action: call_method
-              find_value: "networkBox"
-              method: "activated"
-              args: [0]
+              action: click
+              target: "mainnet"
             - name: "Mainnet has no Stagenet wallet to open"
               action: wait_for
               texts: ["No wallets on mainnet yet"]
@@ -247,15 +243,11 @@ sections:
               property: "walletOpen"
               value: false
             - name: "Select Stagenet again"
-              action: set_property
+              action: click_object
               find_value: "networkBox"
-              property: "currentIndex"
-              value: 1
             - name: "Activate Stagenet"
-              action: call_method
-              find_value: "networkBox"
-              method: "activated"
-              args: [1]
+              action: click
+              target: "stagenet"
             - name: "Wait for the Stagenet wallet list"
               action: wait_for
               texts: ["doctest", "stagenet"]
