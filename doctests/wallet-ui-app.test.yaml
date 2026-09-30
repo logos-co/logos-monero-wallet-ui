@@ -187,3 +187,102 @@ sections:
               find_value: "closeWalletButton"
               property: "visible"
               value: true
+            - name: "Close the Stagenet wallet before changing networks"
+              action: click_object
+              find_by: "objectName"
+              find_value: "closeWalletButton"
+            - name: "The wallet list returns"
+              action: wait_for
+              texts: ["No wallet open", "Wallets"]
+              timeout: 30000
+            - name: "Allow the completed close job to reach the UI poller"
+              action: sleep
+              ms: 1500
+            - name: "The network picker is ready after closing"
+              action: expect_property
+              find_value: "networkBox"
+              property: "enabled"
+              value: true
+            - name: "Select Mainnet"
+              action: call_method
+              find_value: "moneroWalletRoot"
+              method: "selectNetwork"
+              args: ["mainnet"]
+            - name: "Mainnet has no Stagenet wallet to open"
+              action: wait_for
+              texts: ["No wallets on mainnet yet"]
+              timeout: 15000
+            - name: "The network badge is Mainnet with no wallet open"
+              action: expect_property
+              find_value: "networkChip"
+              property: "text"
+              value: "MAINNET"
+            - name: "Mainnet does not list the Stagenet wallet"
+              action: expect_property
+              find_value: "walletsEmpty"
+              property: "visible"
+              value: true
+            - name: "Try opening the Stagenet wallet by name anyway"
+              action: call_method
+              find_value: "moneroWalletRoot"
+              method: "openSheet"
+              args: ["open"]
+            - name: "Enter the Stagenet wallet name"
+              action: set_text
+              find_by: "objectName"
+              find_value: "openNameField"
+              value: "doctest"
+            - name: "Enter its password"
+              action: set_text
+              find_by: "objectName"
+              find_value: "openPasswordField"
+              value: "doctest-pw"
+            - name: "Request opening on Mainnet"
+              action: click_object
+              find_value: "openButton"
+            - name: "The backend refuses the wrong network before opening"
+              action: wait_for
+              texts: ["open: This wallet belongs to stagenet. Select stagenet before opening it."]
+              timeout: 15000
+            - name: "The Stagenet balance is never shown under Mainnet"
+              action: expect_property
+              find_value: "moneroWalletRoot"
+              property: "walletOpen"
+              value: false
+            - name: "Select Stagenet again"
+              action: call_method
+              find_value: "moneroWalletRoot"
+              method: "selectNetwork"
+              args: ["stagenet"]
+            - name: "Wait for the Stagenet wallet list"
+              action: wait_for
+              texts: ["doctest", "stagenet"]
+              timeout: 15000
+            - name: "The Stagenet wallet is listed again"
+              action: expect_property
+              find_value: "walletsEmpty"
+              property: "visible"
+              value: false
+            - name: "Open the wallet on its correct network"
+              action: call_method
+              find_value: "moneroWalletRoot"
+              method: "openSheet"
+              args: ["open"]
+            - name: "Reenter its password"
+              action: set_text
+              find_by: "objectName"
+              find_value: "openPasswordField"
+              value: "doctest-pw"
+            - name: "Open on Stagenet"
+              action: click_object
+              find_value: "openButton"
+            - name: "The wallet can still open on Stagenet after the refusal"
+              action: wait_for
+              texts: ["Wallet: doctest"]
+              timeout: 30000
+            - name: "The open wallet badge reports its actual Stagenet network"
+              action: expect_property
+              find_value: "networkChip"
+              property: "text"
+              value: "STAGENET"
+              screenshot: "wallet-ui-network-isolation.png"
