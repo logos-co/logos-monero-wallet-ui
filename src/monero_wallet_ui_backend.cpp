@@ -387,6 +387,23 @@ void MoneroWalletUiBackend::cancelSend() {
     dismissSend();
 }
 
+// Adopt a send another module prepared, for review here (monero.wallet.review_send). Only a
+// send still awaiting a decision is adopted, and never over one already on screen: the sheet
+// shows one send, and replacing it would hide what the person was deciding.
+bool MoneroWalletUiBackend::reviewSend(QString requestId) {
+    if (requestId.isEmpty() || !sendRequestId().isEmpty()) return false;
+    const QString r = modules().monero_wallet_backend.send_status(requestId);
+    const QJsonObject o = parse(r);
+    if (!o.value("ok").toBool()) return false;
+    const QString state = o.value("state").toString();
+    if (state != "preparing" && state != "previewed") return false;
+    setSendError({});
+    setSendRequestId(requestId);
+    setSendStatusJson(stripOk(r));
+    m_sendPoll.start(kSendPollMs);
+    return true;
+}
+
 // Take a settled send off the screen. NOT cancel_send: that is refused on every terminal state
 // ("send already sent"), and the refusal used to leave sendRequestId set — which kept the sheet
 // up, disabled the address, amount, priority and Review controls, and so wedged the Send tab for

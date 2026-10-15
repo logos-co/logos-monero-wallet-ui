@@ -49,6 +49,7 @@ public:
     void confirmSend() override;
     void cancelSend() override;
     void dismissSend() override;
+    bool reviewSend(QString requestId) override;
     bool addressValid(QString address) override;
     QString formatXmr(QString atomic) override;
 

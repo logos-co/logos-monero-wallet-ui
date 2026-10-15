@@ -38,6 +38,10 @@ Item {
     // the list re-sorts under a new confirmation).
     property string openTx: ""
     property bool clearNodePassword: false
+    // A send another app prepared and asked us to review (monero.wallet.review_send): the
+    // intent to answer once it settles, and who asked, shown on the review sheet.
+    property string reviewIntentId: ""
+    property string reviewRequester: ""
 
     Connections {
         target: logos
@@ -51,6 +55,17 @@ Item {
             if (intent === "monero.accounts.manage") {
                 if (root.walletOpen) root.selectTab(4)  // Settings holds management once open
                 logos.respond(requestId, true, ({}), "")   // arriving IS the request; handoff keeps the user here
+                return
+            }
+            if (intent === "monero.wallet.review_send") {
+                var id = params && params.requestId ? String(params.requestId) : ""
+                if (id === "") { logos.respond(requestId, false, ({}), "bad_request"); return }
+                if (!root.walletOpen) { logos.respond(requestId, false, ({}), "no wallet open"); return }
+                if (root.reviewIntentId !== "" || root.sendOpen) { logos.respond(requestId, false, ({}), "busy"); return }
+                if (!backend.reviewSend(id)) { logos.respond(requestId, false, ({}), "unknown request"); return }
+                root.reviewIntentId = requestId
+                root.reviewRequester = String(requesterName || "")
+                root.selectTab(1)
                 return
             }
             if (intent !== "monero.wallet.unlock") return
@@ -132,6 +147,22 @@ Item {
         var subs = receive.subaddresses || []
         if (root.selectedIndex >= 0 && root.selectedIndex < subs.length) return subs[root.selectedIndex].address
         return receive.address || ""
+    }
+
+    // When a send another app asked us to review settles, answer it: the txids once broadcast;
+    // "cancelled" when the person cancels or dismisses it; "unknown" when the broadcast may or
+    // may not have gone out, so the requester never retries it blindly.
+    onSendChanged: root.answerReview()
+    onSendOpenChanged: root.answerReview()
+    function answerReview() {
+        if (root.reviewIntentId === "") return
+        var st = root.sendOpen ? String(root.send.state || "") : "cancelled"
+        if (st === "preparing" || st === "previewed" || st === "committing" || st === "") return
+        var id = root.reviewIntentId
+        root.reviewIntentId = ""
+        root.reviewRequester = ""
+        if (st === "sent") logos.respond(id, true, ({ requestId: root.backend.sendRequestId, txids: root.send.txids || [] }), "")
+        else logos.respond(id, false, ({}), st === "failed" ? String(root.send.error || "failed") : st)
     }
 
     // When an unlock another app asked for settles, answer the requester; the shell returns them.
@@ -515,6 +546,9 @@ Item {
                     color: Theme.palette.surface
                     ColumnLayout {
                         id: revCol; anchors.fill: parent; anchors.margins: 12; spacing: 4
+                        LogosText { objectName: "reviewRequester"; visible: root.reviewIntentId !== ""; textFormat: Text.PlainText
+                                    wrapMode: Text.WordWrap; Layout.fillWidth: true
+                                    text: "Prepared by " + (root.reviewRequester || "another app") + ". Check the address and amount: nothing is sent unless you confirm here." }
                         LogosText { objectName: "sendState"; textFormat: Text.PlainText; text: "Status: " + (send.state || "") }
                         LogosText { visible: send.state === "preparing"; text: "Building the transaction (fetching decoys)…" }
                         LogosText { visible: !!send.preview; textFormat: Text.PlainText; text: "To: " + (send.preview ? send.preview.destination : "") ; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true }

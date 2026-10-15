@@ -100,6 +100,11 @@ class MoneroWalletUi
     SLOT(void cancelSend())
     // Clear a settled send off the screen. Local: the backend keeps its record either way.
     SLOT(void dismissSend())
+    // Review a send ANOTHER module prepared (monero.wallet.review_send): adopt its requestId
+    // into this sheet, so the person sees its preview and decides here. False, and nothing
+    // adopted, when a send is already on screen or the backend does not know the request.
+    // The broadcast stays this app's: the caller never confirms.
+    SLOT(bool reviewSend(QString requestId))
     SLOT(bool addressValid(QString address))
     SLOT(QString formatXmr(QString atomic))
 }
