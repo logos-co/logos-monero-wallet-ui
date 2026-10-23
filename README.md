@@ -37,12 +37,13 @@ offline signing.
 
 ## Intents
 
-The app **provides** both Monero capabilities so another app can reach this wallet:
+The app **provides** three Monero capabilities so another app can reach this wallet:
 
 | intent | shape |
 |---|---|
 | `monero.wallet.unlock` | `{ wallet }` — opens the password sheet for that wallet, answers when the open settles |
 | `monero.accounts.manage` | `handoff: true` — brings wallet management up and leaves the user here |
+| `monero.wallet.send` | `{ address, amount }`, `handoff: true` — fills the Send tab with that address and amount (XMR, at most 12 places) and shows it; the user reviews and sends here, and nothing is sent by the request itself. With no wallet open the fill waits until one is; refused for a view-only wallet, or while a send is on screen |
 
 Of those two it **uses** neither: managing wallets is a screen here, not a trip to a second app. A self-provided
 intent would dispatch to itself anyway, and the shell raises a chooser for every other case.

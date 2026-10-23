@@ -29,6 +29,10 @@ Item {
     // answering ok for that one would tell the requester it has wallet A when it has wallet B.
     property string unlockRequestId: ""
     property string unlockWallet: ""
+    // A send another app asked us to fill in (monero.wallet.send): { address, amount }. It goes
+    // into the Send tab as if typed, for the person to review and send here; the request itself
+    // sends nothing. Held until a wallet is open when none is yet.
+    property var pendingSend: null
     property string shownSecret: ""
     property string secretKind: ""
     // Receive-tab selection and the inline label editor.
@@ -48,6 +52,22 @@ Item {
         // can ask this wallet to unlock or to bring wallet management up. The one we ask for is
         // monero.node.configure: the local node has its own app.
         function onIntentRequested(requestId, intent, params, requesterName) {
+            if (intent === "monero.wallet.send") {
+                var to = params && params.address !== undefined ? String(params.address).trim() : ""
+                var amt = params && params.amount !== undefined ? String(params.amount).trim() : ""
+                // the Send form's own rule for an amount (at most 12 places), and more than zero
+                if (to === "" || /\s/.test(to) || to.length > 256
+                    || !/^[0-9]*\.?[0-9]{1,12}$/.test(amt) || !/[1-9]/.test(amt)) {
+                    logos.respond(requestId, false, ({}), "bad_request"); return
+                }
+                if (root.walletOpen && root.viewOnly) { logos.respond(requestId, false, ({}), "view-only wallet"); return }
+                // never overwrite a send already on screen
+                if (root.sendOpen) { logos.respond(requestId, false, ({}), "busy"); return }
+                root.pendingSend = { address: to, amount: amt }
+                if (root.walletOpen) root.fillPendingSend()
+                logos.respond(requestId, true, ({}), "")   // arriving IS the request; handoff keeps the user here
+                return
+            }
             if (intent === "monero.accounts.manage") {
                 if (root.walletOpen) root.selectTab(4)  // Settings holds management once open
                 logos.respond(requestId, true, ({}), "")   // arriving IS the request; handoff keeps the user here
@@ -152,6 +172,16 @@ Item {
     // page is in the visible scene, and a text-click on a TabButton is not a reliable switch.
     property int page: 0            // 0 Home, 1 Send, 2 Receive, 3 Activity, 4 Settings
     function selectTab(i) { root.page = i; tabs.currentIndex = i }
+    // Put a requested send into the Send tab (monero.wallet.send) and show it. The person
+    // still presses Review, checks the address and amount, and confirms: nothing else sends.
+    function fillPendingSend() {
+        var p = root.pendingSend
+        root.pendingSend = null
+        if (!p || root.viewOnly || root.sendOpen) return
+        sendAddr.text = p.address
+        sendAmt.text = p.amount
+        root.selectTab(1)   // Send
+    }
     // The wallet forms are sheets, so there is no page index to select any more. One named
     // entry point instead — for a driver, and for the intent handler above.
     function selectNetwork(network) {
@@ -263,7 +293,10 @@ Item {
         openWalletSheet.close(); createSheet.close(); seedSheet.close()
         keysSheet.close(); nodeSheet.close()
     }
-    onWalletOpenChanged: { root.hideSecret(); if (root.walletOpen) root.closeSheets() }
+    onWalletOpenChanged: {
+        root.hideSecret()
+        if (root.walletOpen) { root.closeSheets(); if (root.pendingSend) root.fillPendingSend() }
+    }
     onPageChanged: if (root.page !== 4) root.hideSecret()
 
     ColumnLayout {

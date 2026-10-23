@@ -30,6 +30,24 @@
     {
       "intent": "monero.accounts.manage",
       "handoff": true
+    },
+    {
+      "intent": "monero.wallet.send",
+      "handoff": true,
+      "params": [
+        {
+          "name": "address",
+          "type": "string",
+          "required": true,
+          "description": "The Monero address to pay"
+        },
+        {
+          "name": "amount",
+          "type": "string",
+          "required": true,
+          "description": "The amount in XMR, a decimal with at most 12 places, such as \"0.0005\""
+        }
+      ]
     }
   ],
   "uses": [
