@@ -56,6 +56,27 @@ The Wallets screen lists wallets for the selected network. Select Stagenet to op
 opening it by name while Mainnet is selected is refused. Unverified wallet files remain visible until
 the engine checks their network when opened. The badge and Settings show the open wallet's network.
 
+## Use Tor for
+
+One setting for every network, kept by `monero_node_module`: **Only what identifies you**
+(`identifying`, recommended), **Everything** (`all`) or **Nothing** (`none`).
+
+- **First run:** while the node says `torUseChosen: false`, a screen asks once, in place of the Wallets
+  screen, with what happens, pros and cons for each. A fresh install preselects Only what identifies
+  you; an install from before the setting preselects its current routing, tagged Current, so Continue
+  never weakens it. A backend without `tor_use` shows no screen.
+- **Changing it:** in the node sheet (Node, on the Wallets screen), only while no wallet is open, opening
+  or closing. The wallet's Settings tab shows the choice and "Close your open accounts to change this."
+- **The node sheet:** Direct node (`url`), Node over Tor (`onionUrl`; empty uses the direct node over
+  Tor) and Which Tor: the one that comes with Logos, or your own `socks5h://host:port`. Tor routes
+  always refuse to connect without Tor, so the old "Require the proxy" box is gone.
+- **An open wallet** shows its route: catching up directly, waiting for Tor, or over Tor. While it
+  catches up or waits, Send says "You can send once the wallet has caught up and moved to Tor." and
+  Review is off; the backend refuses `prepare_send` with `waiting_for_tor` either way.
+
+`ci/states.qml` drives these states against a fake backend (CI Gate C), with the Qt that
+`flake.lock` pins through logos-nix.
+
 ## Local node
 
 When `monerod_module` can serve the active network, the node sheet offers **Connect to: The node on

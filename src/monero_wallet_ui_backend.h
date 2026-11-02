@@ -36,6 +36,7 @@ public:
     QString revealViewKey(QString password) override;
     void closeWallet() override;
     void saveNodeConfig(QString configJson) override;
+    QString setTorUse(QString mode) override;
     void refreshLocalNode() override;
 
     // Receiving.
@@ -61,6 +62,7 @@ private:
     void loadStatus();
     void loadRegistry();
     void loadNodeConfig();
+    void loadTorUse();
     void publishReceiveSelection();
     void loadBalances();
     void loadReceive();
