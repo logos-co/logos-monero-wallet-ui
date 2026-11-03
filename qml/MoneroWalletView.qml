@@ -39,6 +39,76 @@ Item {
     property string openTx: ""
     property bool clearNodePassword: false
 
+    // ---- "Use Tor for": the node module's all, identifying or none, asked once before any account ----
+    readonly property var torUseModes: ["identifying", "all", "none"]
+    readonly property var torUseInfo: ready ? j(backend.torUseJson, "{}") : ({})
+    readonly property string torUse: torUseModes.indexOf(torUseInfo.torUse) >= 0 ? torUseInfo.torUse : ""
+    // False only from a node module that keeps the choice and has not been given it yet.
+    readonly property bool torUseUnchosen: torUseInfo.torUseChosen === false
+    // Continue was answered: the Wallets screen shows before the reads catch up.
+    property bool torUseAnswered: false
+    // The node refuses a change while a wallet is open, opening or closing.
+    readonly property bool torUseLocked: walletOpen || busy || status.state === "opening" || status.state === "closing"
+    readonly property bool torChoiceShown: ready && torUseUnchosen && !torUseAnswered && !torUseLocked
+    // Picked on the first-run screen; until then the node's current routing, so Continue never weakens it.
+    property string torChoice: ""
+    readonly property string torChoiceMode: torChoice !== "" ? torChoice : (torUse !== "" ? torUse : "identifying")
+    property bool torUseSending: false
+    property string torUseStartNote: ""
+    property string torUseNote: ""
+    readonly property string torUseIntro: "How should this wallet use Tor? Tor hides your IP address, which can reveal where you are, "
+                                          + "from the computers your wallet talks to, but it is slower than a direct connection. You can "
+                                          + "change this later under Node, on the Wallets screen, while no account is open."
+    readonly property var torUseCopy: ({
+        identifying: {
+            label: "Only what identifies you",
+            happens: "Each time you open the wallet, it catches up from a regular Monero node directly. Once caught up, it "
+                     + "switches to a node reachable only over Tor for everything else, sends included.",
+            pros: "Catching up is much faster than over Tor. The node that sees your sends, and the outputs they spend, "
+                  + "never sees your IP address.",
+            cons: "The catch-up node and your internet provider can see that your IP address uses a Monero wallet, when you "
+                  + "open it, and the block it starts from. You can send only once the wallet has caught up and moved to Tor."
+        },
+        all: {
+            label: "Everything",
+            happens: "Every connection goes through Tor, to a node reachable only over Tor.",
+            pros: "No node learns your IP address, and your internet provider can't see that you use Monero.",
+            cons: "The slowest choice. Catching up after weeks away, or restoring, can take hours, and it stops while Tor is down."
+        },
+        none: {
+            label: "Nothing",
+            happens: "Every connection is direct.",
+            pros: "The fastest choice, and it works where Tor is blocked.",
+            cons: "The node sees your IP address together with your sends and the outputs they spend. Your internet provider "
+                  + "can see that you use Monero."
+        }
+    })
+    // `then(error)` gets "" once the node stored it.
+    function setTorUse(mode, then) {
+        root.torUseSending = true
+        logos.watch(backend.setTorUse(mode),
+                    function (e) { root.torUseSending = false; then(e || "") },
+                    function () { root.torUseSending = false; then("The wallet backend did not answer.") })
+    }
+    // For a driver, like selectNetwork: the first-run pick without a click.
+    function chooseTorUse(mode) {
+        if (root.torChoiceShown && root.torUseModes.indexOf(mode) >= 0) root.torChoice = mode
+    }
+    function continueTorUse() {
+        root.torUseStartNote = ""
+        root.setTorUse(root.torChoiceMode, function (e) {
+            root.torUseStartNote = e
+            if (e === "") root.torUseAnswered = true
+        })
+    }
+    // What the open wallet is talking to, under "Use Tor for".
+    function routeLine() {
+        if (status.route === "catch_up") return "Catching up directly. Sends wait until the wallet has caught up and moved to Tor."
+        if (status.route === "waiting_for_tor") return "Waiting for Tor. Nothing is fetched or sent until it is ready."
+        if (status.route === "tor") return "Over Tor"
+        return ""
+    }
+
     Connections {
         target: logos
         function onViewModuleReadyChanged(moduleName, isReady) {
@@ -173,9 +243,11 @@ Item {
     function resetNodeForm() {
         if (!ndHost) return
         ndHost.text = root.nodeCfg.url || ""
+        ndOnion.text = root.nodeCfg.onionUrl || ""
         ndUser.text = root.nodeCfg.username || ""
-        ndProxy.text = root.nodeCfg.proxy || ""
-        ndProxyReq.checked = !!root.nodeCfg.proxyRequired
+        var own = !!root.nodeCfg.proxy && root.nodeCfg.proxy !== "tor"
+        ndProxy.text = own ? root.nodeCfg.proxy : ""
+        ndWhichTor.currentIndex = own ? 1 : 0
         ndTrusted.checked = !!root.nodeCfg.trusted
         root.ndMode = root.nodeCfg.mode || "remote"
         root.nodeIntentNote = ""
@@ -199,13 +271,13 @@ Item {
                    ? " / " + node.targetHeight + " · syncing" : " · waiting for peers")
         }
         return node.reachable === true
-            ? ("Reachable · height " + node.height + " · " + (node.route === "proxied" ? "through the proxy" : "direct") + " · " + (node.rttMs || 0) + "ms")
+            ? ("Reachable · height " + node.height + " · " + (node.route === "proxied" ? "over Tor" : "direct") + " · " + (node.rttMs || 0) + "ms")
             : ("Node: " + (node.error || "unknown"))
     }
     function nodeChip() {
         var local = node.mode === "local"
         if (node.reachable === true)
-            return (local ? "local node " : "node " + (node.route || "") + " ") + (node.rttMs || 0) + "ms"
+            return (local ? "local node " : "node " + (node.route === "proxied" ? "over Tor" : (node.route || "")) + " ") + (node.rttMs || 0) + "ms"
         if (node.reachable === false) return local ? "local node " + ((node.local || {}).state || "unavailable") : "node unreachable"
         return ""
     }
@@ -238,6 +310,43 @@ Item {
     // is the only clipboard the ui_qml sandbox exposes. Kept off-screen and cleared after use
     // so nothing lingers in a visible item.
     TextEdit { id: clipHelper; visible: false; width: 0; height: 0 }
+
+    // One "Use Tor for" option: its label and tags, then what happens, pros and cons while `explained`.
+    component TorUseOption: ColumnLayout {
+        id: option
+        property string prefix: ""
+        property string mode: ""
+        property bool checked: false
+        property bool explained: true
+        // The first-run screen tags the node's current routing; Settings shows it checked.
+        property bool withCurrent: false
+        signal picked()
+        readonly property var copy: root.torUseCopy[mode] || ({})
+        Layout.fillWidth: true
+        spacing: Theme.spacing.tiny
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacing.small
+            LogosRadioButton { objectName: option.prefix + option.mode; checkable: false; checked: option.checked
+                               text: option.copy.label || ""; onClicked: option.picked() }
+            LogosBadge { objectName: option.prefix + "recommended_" + option.mode; visible: option.mode === "identifying"
+                         text: "Recommended"; color: Theme.palette.success }
+            LogosBadge { objectName: option.prefix + "current_" + option.mode
+                         visible: option.withCurrent && option.mode === root.torUse && option.mode !== "identifying"
+                         text: "Current"; color: Theme.palette.textSecondary }
+            Item { Layout.fillWidth: true }
+        }
+        Repeater {
+            model: option.explained ? [["What happens", option.copy.happens], ["Pros", option.copy.pros], ["Cons", option.copy.cons]] : []
+            LogosText {
+                required property var modelData
+                required property int index
+                objectName: option.prefix + ["happens_", "pros_", "cons_"][index] + option.mode
+                Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.StyledText; color: Theme.palette.textSecondary
+                text: "<b>" + modelData[0] + ":</b> " + (modelData[1] || "")
+            }
+        }
+    }
     property string copied: ""
     Timer { id: copiedTimer; interval: 1400; onTriggered: root.copied = "" }
     function copyText(what, text) {
@@ -335,6 +444,9 @@ Item {
                 : (status.state === "opening" ? "Opening…" : (status.state === "closing" ? "Closing…" : "No wallet open")))
         }
 
+        LogosText { objectName: "torRouteLine"; visible: root.walletOpen && text !== ""; text: root.routeLine(); textFormat: Text.PlainText
+                    wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary }
+
         LogosText { objectName: "errorLine"; visible: root.ready && backend.lastError !== ""; text: root.ready ? backend.lastError : ""; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.error }
 
         // A send whose outcome is unknown is reported HERE, above the tabs, not inside the Send
@@ -368,7 +480,8 @@ Item {
         // above a two-row list made the list look like one option among six, and left four
         // tabs' worth of empty form on screen whenever the user was not filling one in.
         ColumnLayout {
-            visible: root.ready && !root.walletOpen
+            objectName: "walletsPage"
+            visible: root.ready && !root.walletOpen && !root.torChoiceShown
             Layout.fillWidth: true; Layout.fillHeight: true
             spacing: Theme.spacing.small
 
@@ -442,6 +555,53 @@ Item {
             }
         }
 
+        // ================= FIRST RUN: how this wallet uses Tor, asked once =================
+        ScrollView {
+            id: torUseScroll
+            objectName: "torUsePage"
+            visible: root.torChoiceShown
+            Layout.fillWidth: true; Layout.fillHeight: true
+            clip: true
+            contentWidth: availableWidth
+            ColumnLayout {
+                width: torUseScroll.availableWidth
+                spacing: Theme.spacing.medium
+                LogosText { text: "Use Tor for"; font.pixelSize: 22 }
+                LogosText { objectName: "torUseIntro"; Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
+                            text: root.torUseIntro }
+                Repeater {
+                    model: root.torUseModes
+                    LogosFrame {
+                        id: startOption
+                        required property string modelData
+                        Layout.fillWidth: true
+                        borderColor: root.torChoiceMode === modelData ? Theme.palette.primary : Theme.palette.border
+                        contentItem: TorUseOption {
+                            prefix: "torUseStart_"
+                            mode: startOption.modelData
+                            checked: root.torChoiceMode === startOption.modelData
+                            withCurrent: true
+                            enabled: !root.torUseSending
+                            onPicked: root.torChoice = startOption.modelData
+                        }
+                    }
+                }
+                LogosText { objectName: "torUseStartNote"; visible: text !== ""; Layout.fillWidth: true; wrapMode: Text.Wrap
+                            textFormat: Text.PlainText; color: Theme.palette.error; text: root.torUseStartNote }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    LogosButton {
+                        objectName: "torUseContinue"
+                        text: root.torUseSending ? "Saving…" : "Continue"
+                        variant: LogosButton.Variant.Primary
+                        enabled: root.ready && !root.torUseSending
+                        onClicked: root.continueTorUse()
+                    }
+                }
+            }
+        }
+
         // ================= A WALLET IS OPEN =================
         LogosTabBar {
             id: tabs; visible: root.walletOpen; Layout.fillWidth: true
@@ -503,9 +663,12 @@ Item {
                     }
                 }
                 LogosText { objectName: "sendError"; visible: root.ready && backend.sendError !== ""; text: root.ready ? backend.sendError : ""; textFormat: Text.PlainText; color: Theme.palette.error; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                LogosText { objectName: "sendWaitNote"; visible: status.waitingForTor === true && !root.sendOpen; wrapMode: Text.Wrap; Layout.fillWidth: true
+                            color: Theme.palette.textSecondary; text: "You can send once the wallet has caught up and moved to Tor." }
                 LogosButton {
                     objectName: "reviewButton"; text: "Review"
-                    enabled: root.ready && !root.viewOnly && !root.sendOpen && sendAddr.text !== "" && sendAmt.text !== "" && sendAmt.text !== "."
+                    enabled: root.ready && !root.viewOnly && !root.sendOpen && status.waitingForTor !== true
+                             && sendAddr.text !== "" && sendAmt.text !== "" && sendAmt.text !== "."
                     onClicked: backend.prepareSend(JSON.stringify({ address: sendAddr.text, amountXmr: sendAmt.text, priority: prio.prioIndex }))
                 }
                 // The review sheet. What it governs is BROADCAST: the engine signed at build.
@@ -832,6 +995,13 @@ Item {
                                 text: "Close this wallet to change either one: the engine binds its daemon when a wallet "
                                       + "opens. The node form and the network picker are both on the Wallets screen." }
 
+                    // Read-only here for the same reason as the node; the choice is in the node sheet.
+                    LogosText { text: "Use Tor for"; font.pixelSize: 16; visible: root.torUse !== "" }
+                    LogosText { objectName: "settingsTorUse"; visible: root.torUse !== ""; textFormat: Text.PlainText
+                                color: Theme.palette.textSecondary; text: (root.torUseCopy[root.torUse] || {}).label || "" }
+                    LogosText { objectName: "settingsTorUseLocked"; visible: root.torUse !== ""; wrapMode: Text.Wrap; Layout.fillWidth: true
+                                color: Theme.palette.textTertiary; text: "Close your open accounts to change this." }
+
                     LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary
                                 text: "Engine: monero_c " + (status.libraryVersion || "") + " (LGPL-3.0, dynamically linked)" }
                     Item { Layout.fillHeight: true }
@@ -966,6 +1136,43 @@ Item {
             // wallet — which is the exact bug this page was moved here to fix.
             objectName: "walletsNodePage"
             spacing: 8
+            // The first-run choice, changed here only while no account is open. Absent from an older node module.
+            ColumnLayout {
+                id: torUseSettings
+                objectName: "torUseSettings"
+                property bool explained: false
+                visible: root.torUse !== ""
+                Layout.fillWidth: true
+                spacing: Theme.spacing.tiny
+                RowLayout {
+                    Layout.fillWidth: true
+                    LogosText { text: "Use Tor for"; font.weight: Theme.typography.weightBold }
+                    Item { Layout.fillWidth: true }
+                    LogosLink { objectName: "torUseExplain"; underline: false
+                                text: torUseSettings.explained ? "Hide what this means" : "What this means"
+                                onActivated: torUseSettings.explained = !torUseSettings.explained }
+                }
+                Repeater {
+                    model: root.torUseModes
+                    TorUseOption {
+                        required property string modelData
+                        prefix: "torUse_"
+                        mode: modelData
+                        checked: root.torUse === modelData
+                        explained: torUseSettings.explained
+                        enabled: root.ready && !root.torUseLocked && !root.torUseSending
+                        onPicked: {
+                            if (modelData === root.torUse) return
+                            root.torUseNote = ""
+                            root.setTorUse(modelData, function (e) { root.torUseNote = e })
+                        }
+                    }
+                }
+                LogosText { objectName: "torUseLocked"; visible: root.torUseLocked; Layout.fillWidth: true; wrapMode: Text.Wrap
+                            color: Theme.palette.textSecondary; text: "Close your open accounts to change this." }
+                LogosText { objectName: "torUseNote"; visible: text !== ""; Layout.fillWidth: true; wrapMode: Text.Wrap
+                            textFormat: Text.PlainText; color: Theme.palette.error; text: root.torUseNote }
+            }
             LogosText { objectName: "nodeSheetStatus"; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
                         text: root.nodeLine() }
             LogosText { textFormat: Text.PlainText; color: Theme.palette.textSecondary
@@ -1009,10 +1216,14 @@ Item {
                 visible: root.ndMode === "remote"
                 enabled: root.ready
 
-                LogosText { text: "Address"; color: Theme.palette.textSecondary }
+                LogosText { text: "Direct node"; color: Theme.palette.textSecondary }
                 LogosTextField { id: ndHost; objectName: "nodeHostField"; Layout.fillWidth: true
-                            placeholderText: "http://host:port, e.g. http://node2.monerodevs.org:38089"
+                            placeholderText: "http(s)://host:port, e.g. https://node2.monerodevs.org:38089"
                             text: root.nodeCfg.url || "" }
+                LogosText { text: "Node over Tor"; color: Theme.palette.textSecondary }
+                LogosTextField { id: ndOnion; objectName: "nodeOnionField"; Layout.fillWidth: true
+                            placeholderText: "http://….onion:port (empty: the direct node, over Tor)"
+                            text: root.nodeCfg.onionUrl || "" }
                 LogosText { text: "Daemon username"; color: Theme.palette.textSecondary }
                 LogosTextField { id: ndUser; objectName: "nodeUserField"; Layout.fillWidth: true
                             placeholderText: "optional"; text: root.nodeCfg.username || "" }
@@ -1029,17 +1240,20 @@ Item {
                     LogosButton { visible: !!root.nodeCfg.hasPassword; text: "Clear stored"
                                   onClicked: { ndPass.text = ""; root.clearNodePassword = true } }
                 }
-                LogosText { text: "Proxy"; color: Theme.palette.textSecondary }
+                // Tor routes always refuse to connect without Tor, so there is no "require" box.
+                LogosText { text: "Which Tor"; color: Theme.palette.textSecondary }
+                LogosComboBox {
+                    id: ndWhichTor
+                    objectName: "nodeWhichTorBox"
+                    model: ["The Tor that comes with Logos", "Your own Tor"]
+                }
+                LogosText { text: "Your own Tor"; color: Theme.palette.textSecondary; visible: ndWhichTor.currentIndex === 1 }
                 LogosTextField { id: ndProxy; objectName: "nodeProxyField"; Layout.fillWidth: true
-                            placeholderText: "socks5h://127.0.0.1:9050 (empty for none)"
-                            text: root.nodeCfg.proxy || "" }
+                            visible: ndWhichTor.currentIndex === 1
+                            placeholderText: "socks5h://127.0.0.1:9050" }
                 LogosText { text: ""; opacity: 0 }
                 // LogosCheckbox, not CheckBox: the raw control colours its own label, and
-                // under the dark theme that is near-black on near-black. LogosText is the
-                // rule everywhere else in this view; these two were the exception.
-                LogosCheckbox { id: ndProxyReq; objectName: "nodeProxyRequiredBox"; text: "Require the proxy (refuse to connect without it)"
-                                checked: !!root.nodeCfg.proxyRequired }
-                LogosText { text: ""; opacity: 0 }
+                // under the dark theme that is near-black on near-black.
                 LogosCheckbox { id: ndTrusted; objectName: "nodeTrustedBox"; text: "Trusted daemon"
                                 checked: !!root.nodeCfg.trusted }
             }
@@ -1055,12 +1269,13 @@ Item {
                     // password-wipe above became reachable.
                     enabled: root.ready && !root.busy && (root.ndMode === "local" || ndHost.text !== "")
                              && (root.nodeFormNetwork === "" || root.nodeFormNetwork === root.activeNetwork)
+                             && (ndWhichTor.currentIndex === 0 || ndProxy.text.trim() !== "")
                     onClicked: {
                         // The remote fields are sent in local mode too: the record keeps them.
                         var cfg = { url: ndHost.text.trim(),
+                                    onionUrl: ndOnion.text.trim(),
                                     username: ndUser.text.trim(),
-                                    proxy: ndProxy.text.trim(),
-                                    proxyRequired: ndProxyReq.checked,
+                                    proxy: ndWhichTor.currentIndex === 1 ? ndProxy.text.trim() : "",
                                     trusted: ndTrusted.checked,
                                     mode: root.ndMode }
                         // Omitting password KEEPS the stored one; "" clears it.

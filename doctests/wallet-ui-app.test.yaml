@@ -33,8 +33,10 @@ sections:
           nix build 'github:logos-co/logos-monero-wallet-core-module{release}#install' --no-write-lock-file -o result-core
           nix build 'github:logos-co/logos-monero-wallet-backend{release}#install' --no-write-lock-file -o result-backend
           nix build 'github:logos-co/logos-monero-wallet-ui{release}#install' --no-write-lock-file -o result-wallet
+          # The node module depends on tor_module; this run never starts it (Nothing, below).
+          nix build 'github:logos-co/logos-tor-module#install' --no-write-lock-file -o result-tor
           mkdir -p tree/modules tree/plugins
-          cp -rL result-capability/modules/* result-node/modules/* \
+          cp -rL result-capability/modules/* result-node/modules/* result-tor/modules/* \
                  result-core/modules/* result-backend/modules/* tree/modules/
           cp -rL result-wallet/plugins/* tree/plugins/
           chmod -R u+w tree
@@ -43,6 +45,7 @@ sections:
           nix build 'github:logos-co/logos-standalone-app' -o result-app
           nix build 'github:logos-co/logos-qt-mcp' -o result-mcp
           nix build 'github:logos-co/logos-capability-module#install' -o result-capability
+          nix build 'github:logos-co/logos-tor-module#install' -o result-tor
           for m in node-module wallet-core-module wallet-backend wallet-ui; do
             nix build "github:logos-co/logos-monero-$m#install" -o "result-$m"
           done
@@ -60,6 +63,35 @@ sections:
           qt_mcp: "result-mcp"
           launch_timeout: 600
           tests:
+            - name: "A fresh install asks how the wallet should use Tor, before any wallet"
+              # With `timeout`, expect_property polls; a text wait would match hidden items.
+              action: expect_property
+              find_by: "objectName"
+              find_value: "torUsePage"
+              property: "visible"
+              value: true
+              timeout: 30000
+              screenshot: "wallet-ui-tor-use.png"
+            - name: "Pick Nothing: this run's node is on this computer, so it is direct in every mode"
+              # Through the root, as the options can sit below the fold of a scrolled page.
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "chooseTorUse"
+              args: ["none"]
+            - name: "Continue"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "continueTorUse"
+              args: []
+            - name: "The choice is asked once: the Wallets screen takes its place"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "walletsPage"
+              property: "visible"
+              value: true
+              timeout: 30000
             - name: "With nothing open the app shows the Wallets screen"
               action: wait_for
               texts: ["No wallet open", "Wallets"]
@@ -84,6 +116,12 @@ sections:
               find_by: "objectName"
               find_value: "nodeSheet"
               property: "visible"
+              value: true
+            - name: "The node sheet holds the choice, as it was answered"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "torUse_none"
+              property: "checked"
               value: true
             - name: "...and its address field accepts input"
               action: expect_property

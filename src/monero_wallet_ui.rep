@@ -42,8 +42,12 @@ class MoneroWalletUi
     // The BIP-21-style payment URI for the selection: monero:<address>[?tx_amount=...].
     PROP(QString receiveUri="" READONLY)
     // The active network's node, with the RPC password redacted to hasPassword:
-    // { url, username, hasPassword, proxy, proxyRequired, trusted, source, network, mode }
+    // { url, onionUrl, username, hasPassword, proxy, trusted, source, network, mode }
+    // proxy absent or "tor" = the Tor that comes with Logos, else your own socks5h://.
     PROP(QString nodeConfigJson="{}" READONLY)
+    // "Use Tor for", one setting for every network: { torUse: all|identifying|none, torUseChosen,
+    // existing }. Empty from a backend that predates it.
+    PROP(QString torUseJson="" READONLY)
     // Whether monerod_module can serve the active network, read when the node sheet opens:
     // { available, rpcUrl, status: { state, network, height, targetHeight, ... }, error }
     PROP(QString localNodeJson="{}" READONLY)
@@ -79,6 +83,8 @@ class MoneroWalletUi
     // Point the active network at a different daemon. CUSTODIAN, and refused while a wallet is
     // open: wallet2 binds its daemon at init. Omit "password" to keep the stored one.
     SLOT(void saveNodeConfig(QString configJson))
+    // CUSTODIAN, refused while a wallet is open. "" when stored, else why not.
+    SLOT(QString setTorUse(QString mode))
     SLOT(void refreshLocalNode())
 
     // ---- receiving ----
