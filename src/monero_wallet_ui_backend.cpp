@@ -63,7 +63,11 @@ void MoneroWalletUiBackend::clearAndRefresh() {
 }
 
 void MoneroWalletUiBackend::onContextReady() {
-    QObject::connect(&m_readPoll, &QTimer::timeout, [this] { loadStatus(); loadBalances(); syncHistoryToHeight(); });
+    QObject::connect(&m_readPoll, &QTimer::timeout, [this] {
+        loadStatus(); loadBalances(); syncHistoryToHeight();
+        // Read only on a refresh otherwise: a busy engine then left Receive without an address.
+        if (parse(receiveJson()).value("address").toString().isEmpty()) loadReceive();
+    });
     QObject::connect(&m_jobPoll, &QTimer::timeout, [this] { pollJob(); });
     QObject::connect(&m_sendPoll, &QTimer::timeout, [this] { pollSend(); });
     // Subscribe first, then reconcile; never call out synchronously from an event callback
