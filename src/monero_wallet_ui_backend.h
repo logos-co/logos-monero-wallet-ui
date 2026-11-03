@@ -58,6 +58,7 @@ protected:
 
 private:
     void say(const QString &line);
+    void unsay(const QString &context);
     bool ok(const QString &reply, const QString &context);
     void loadStatus();
     void loadRegistry();
