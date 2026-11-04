@@ -42,8 +42,9 @@ class MoneroWalletUi
     // The BIP-21-style payment URI for the selection: monero:<address>[?tx_amount=...].
     PROP(QString receiveUri="" READONLY)
     // The active network's node, with the RPC password redacted to hasPassword:
-    // { url, onionUrl, username, hasPassword, proxy, trusted, source, network, mode }
-    // proxy absent or "tor" = the Tor that comes with Logos, else your own socks5h://.
+    // { url, onionUrl, username, hasPassword, proxy, trusted, source, network, mode, own, reachThroughTor }
+    // proxy absent or "tor" = the Tor that comes with Logos, else your own socks5h://. own: a node
+    // you run, routed by its address; source "default": the node the node module picks.
     PROP(QString nodeConfigJson="{}" READONLY)
     // "Use Tor for", one setting for every network: { torUse: all|identifying|none, torUseChosen,
     // existing }. Empty from a backend that predates it.

@@ -33,7 +33,8 @@
     }
   ],
   "uses": [
-    { "intent": "monero.node.configure", "cardinality": "single" }
+    { "intent": "monero.node.configure", "cardinality": "single" },
+    { "intent": "tor.manage", "cardinality": "single" }
   ],
   "codegen": {
     "rep": "src/monero_wallet_ui.rep"

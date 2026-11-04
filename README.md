@@ -48,7 +48,8 @@ Of those two it **uses** neither: managing wallets is a screen here, not a trip 
 intent would dispatch to itself anyway, and the shell raises a chooser for every other case.
 
 It **uses** `monero.node.configure`: the node sheet's **Open Monero Node…** hands off to the
-app that runs the local node (`monerod_ui`).
+app that runs the local node (`monerod_ui`). It also **uses** `tor.manage`: **Manage Tor…**, beside
+the Tor that comes with Logos, hands off to the Tor app.
 
 ## Networks
 
@@ -56,37 +57,52 @@ The Wallets screen lists wallets for the selected network. Select Stagenet to op
 opening it by name while Mainnet is selected is refused. Unverified wallet files remain visible until
 the engine checks their network when opened. The badge and Settings show the open wallet's network.
 
-## Use Tor for
+## Where the chain comes from
 
-One setting for every network, kept by `monero_node_module`, most private first: **Everything**
-(`all`), **Only what identifies you** (`identifying`, recommended) or **Nothing** (`none`).
+The node sheet (Node, on the Wallets screen) is one decision, read top to bottom, kept per network
+by `monero_node_module`. Only what the choice uses is shown under it, and the radios are the state:
+there is no "Use it" or "Connect to".
 
-- **First run:** while the node says `torUseChosen: false`, a screen asks once, in place of the Wallets
-  screen, with what happens, pros and cons for each. A fresh install preselects Only what identifies
-  you; an install from before the setting preselects its current routing, tagged Current, so Continue
-  never weakens it. A backend without `tor_use` shows no screen.
-- **Network privacy**, at the top of the node sheet: **Run your own node** comes first, with its
-  benefits and costs, **Open Monero Node…** and, with a node on this device, **Use it**, which picks
-  it in the form below for Save node. Use Tor for follows.
-- **Changing it:** in the node sheet (Node, on the Wallets screen), only while no wallet is open, opening
-  or closing. The wallet's Settings tab shows the choice and "Close your open accounts to change this."
-- **The node sheet:** Direct node (`url`), Node over Tor (`onionUrl`; empty uses the direct node over
-  Tor) and Which Tor: the one that comes with Logos, or your own `socks5h://host:port`. Tor routes
-  always refuse to connect without Tor, so the old "Require the proxy" box is gone.
+- **Your own node** (Most private), with one benefits and costs note:
+  - **In Logos:** the node `monerod_module` runs (local mode), with its state and **Open Monero
+    Node…**. Offered when it can serve the network. The wallet's connection never leaves the
+    computer, so there is no Tor here; the node's peer connections are set in the Monero Node app.
+    Start the node before opening a wallet: the engine connects when a wallet opens.
+  - **At an address:** a node you run elsewhere, with an optional login. The address decides,
+    shown under the field: on your network "Reached directly. Tor can't reach your network.", an
+    onion "Always reached through Tor.", anywhere else a **Reach it through Tor** switch, on by
+    default. Which Tor shows where Tor is used. Stored with `own: true` and `reachThroughTor`; "Use
+    Tor for" does not apply to it. **Trusted daemon** shows only for a loopback address, the only
+    place the engine honours it.
+- **Public sources**, nodes run by other people:
+  - **A node picked for you:** the node module's seeded node, moved by health on mainnet. Saved as
+    `source: "default"`, so the node module, not this form, supplies the address.
+  - **A node you choose:** a direct address and an optional address over Tor. A login stored for
+    that address stays with it; a new address drops it. An address on your own network is saved as
+    your own node.
+  - **Use Tor for:** Everything (`all`), Only what identifies you (`identifying`, recommended),
+    Nothing (`none`), with what happens, pros and cons behind **What this means**, worded for the
+    choice above. It applies to every network that uses public sources, and is stored at once.
+  - **Which Tor**, unless Nothing: the Tor that comes with Logos, with its status from
+    `node_health` and **Manage Tor…**, or your own Tor's SOCKS address. Tor routes refuse to
+    connect without Tor.
+- **Save node** stores the choice on screen. A hidden field sends what is stored, never its edits,
+  and never blocks Save: In Logos keeps the stored remote half, and an empty own Tor matters only
+  while Which Tor shows. The sheet is read-only, with "Close your open accounts to change this.",
+  while a wallet is open, opening or closing. Settings shows the stored choice read-only.
+- **First run:** while the node says `torUseChosen: false`, the same top choice replaces the
+  Wallets screen once, with Public sources preselected and Use Tor for under it. A fresh install
+  preselects Only what identifies you; an install from before the setting preselects its current
+  routing, tagged Current. Your own node stores the recommended mode too (or an existing install's
+  routing), so a later switch to public sources has one, then opens the node sheet on your own
+  node. A backend without `tor_use` shows no screen.
 - **An open wallet** shows its route: catching up directly, waiting for Tor, or over Tor. While it
   catches up or waits, Send says "You can send once the wallet has caught up and moved to Tor." and
   Review is off; the backend refuses `prepare_send` with `waiting_for_tor` either way.
 
 `ci/states.qml` drives these states against a fake backend (CI Gate C), with the Qt that
-`flake.lock` pins through logos-nix.
-
-## Local node
-
-When `monerod_module` can serve the active network, the node sheet offers **Connect to: The node on
-this device**. The wallet then dials that node's loopback URL, trusted and never proxied, and the
-remote settings stay stored for a switch back. Without `monerod_module` installed the choice is not
-shown. Start the node before opening a wallet: the engine connects when a wallet opens.
-`doctests/assert_local_node.py` drives both cases (`--absent` for the second).
+`flake.lock` pins through logos-nix. `doctests/assert_local_node.py` drives In Logos against a
+running `monerod_module`, and without it (`--absent`).
 
 ## QR
 

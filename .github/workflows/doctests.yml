@@ -73,12 +73,13 @@ jobs:
 
       - name: Run doc-tests
         run: |
-          # The node, engine and backend pins are their "Use Tor for" PRs until those merge.
+          # The node pin is logos-monero-node-module#8 (your own node at an address) until it merges.
           nix run github:logos-co/logos-doctest -- run \
             doctests/wallet-ui-app.test.yaml \
             --verbose \
             --continue-on-fail \
             --release-for logos-monero-wallet-ui=${{ steps.commit.outputs.sha }} \
+            --release-for logos-monero-node-module=aeef7b215b7e22cb78ec01df7db0570ee21a363a \
             --report "${{ runner.temp }}/doctest-report.html"
 
       - name: Stage report for upload

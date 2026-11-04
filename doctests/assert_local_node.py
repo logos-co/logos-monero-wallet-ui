@@ -50,11 +50,9 @@ def method(name, m, args=None):
     if "error" in r:
         raise RuntimeError(f"{name}.{m}: {r['error']}")
 
-def activate(name, index):
-    # callMethod cannot match activated(int) from a JSON number; QML emits a signal when called.
-    r = call("evaluate", {"objectId": oid(name), "expression": f"activated({index})"})
-    if "error" in r:
-        raise RuntimeError(f"{name}.activated({index}): {r['error']}")
+def choose(source, kind):
+    # The node sheet's radios, through the root's driver entry point.
+    method("moneroWalletRoot", "chooseNodeSource", [source, kind])
 
 def set_text(name, text, prop="objectName"):
     call("setProperty", {"objectId": oid(name, prop), "property": "text", "value": text})
@@ -109,17 +107,17 @@ def present():
     wait(lambda: (daemon("status") or {}).get("state") == "running", "daemon running", 60)
     check("daemon running", daemon("status").get("state") == "running", daemon("status"))
 
-    print("3) the node sheet offers local mode")
+    print("3) the node sheet offers your own node in Logos")
     method("moneroWalletRoot", "openSheet", ["node"])
     wait(lambda: props("nodeSheet").get("visible") is True, "sheet visible", 20)
     wait(lambda: ev("localNode.available") is True, "local node offered", 30)
-    check("the selector is shown", props("nodeModeBox").get("visible") is True, props("nodeModeBox").get("visible"))
-    check("form starts in remote", ev("ndMode") == "remote", ev("ndMode"))
-    activate("nodeModeBox", 1)
-    check("selecting local switches the form", ev("ndMode") == "local", ev("ndMode"))
-    check("local pane shown, remote fields hidden",
-          props("localNodePane").get("visible") is True and props("nodeHostField").get("visible") is False,
-          (props("localNodePane").get("visible"), props("nodeHostField").get("visible")))
+    check("form starts on public sources", ev("ndSource") == "public" and ev("ndMode") == "remote", (ev("ndSource"), ev("ndMode")))
+    choose("own", "logos")
+    check("In Logos can be picked", props("ownInLogos").get("enabled") is True, props("ownInLogos").get("enabled"))
+    check("picking it switches the form", ev("ndMode") == "local", ev("ndMode"))
+    check("local pane shown, public sources hidden",
+          props("localNodePane").get("visible") is True and props("publicSourcesOption").get("visible") is False,
+          (props("localNodePane").get("visible"), props("publicSourcesOption").get("visible")))
     check("address is the loopback node", props("localNodeAddress").get("text") == "Address: http://127.0.0.1:38081",
           props("localNodeAddress").get("text"))
     check("state is running", props("localNodeState").get("text") == "Node on this device: running",
@@ -165,14 +163,14 @@ def present():
           props("settingsNodeUrl").get("text"))
     shot("04-settings.png")
 
-    print("6) close it, switch back to remote: the stored remote node is still there")
+    print("6) close it, switch back to public sources: the stored remote node is still there")
     method("closeWalletButton", "clicked")
     wait(lambda: ev("walletOpen") is False, "wallet closed", 60)
     method("moneroWalletRoot", "openSheet", ["node"])
     wait(lambda: props("nodeSheet").get("visible") is True, "sheet visible", 20)
-    activate("nodeModeBox", 0)
-    check("remote fields back, with the stored url", props("nodeHostField").get("text") == stored_url,
-          props("nodeHostField").get("text"))
+    choose("public", "")
+    check("public sources back, as stored", ev("ndPublicKind") == ("picked" if ev("nodeCfg.source") == "default" else "chosen"),
+          (ev("ndPublicKind"), ev("nodeCfg.source")))
     method("saveNodeButton", "clicked")
     wait(lambda: ev("nodeCfg.mode") == "remote", "stored mode remote", 30)
     check("stored url unchanged", ev("nodeCfg.url") == stored_url, ev("nodeCfg.url"))
@@ -198,10 +196,11 @@ def absent():
     wait(lambda: ev("localNode.error"), "local_node answered", 30, interval=0.25)
     print(f"    local_node answered within {time.time() - t0:.1f}s: {ev('localNode.error')!r}")
     check("not available", ev("localNode.available") is False, ev("localNode"))
-    check("selector hidden", props("nodeModeBox").get("visible") is False, props("nodeModeBox").get("visible"))
-    check("local pane hidden, remote form shown",
-          props("localNodePane").get("visible") is False and props("nodeHostField").get("visible") is True,
-          (props("localNodePane").get("visible"), props("nodeHostField").get("visible")))
+    choose("own", "")
+    check("In Logos cannot be picked", props("ownInLogos").get("enabled") is False, props("ownInLogos").get("enabled"))
+    check("...at an address instead, with the way to get a node", ev("ndOwnKind") == "address"
+          and props("manageLocalNodeButton").get("visible") is True, (ev("ndOwnKind"), props("manageLocalNodeButton").get("visible")))
+    choose("public", "")
     shot("absent-sheet.png")
     method("nodeSheet", "close")
 
