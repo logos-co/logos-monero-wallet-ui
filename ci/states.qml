@@ -412,15 +412,26 @@ Item {
             v.selectTab(4)
         },
         function (v) {
-            expect("Settings names the source", prop("settingsNodeSource", "text"), "Public sources: a node you choose")
-            expect("...and Use Tor for", shown("settingsTorUse") + " " + prop("settingsTorUse", "text"), "true Only what identifies you")
-            expect("...and where to change them", prop("settingsTorUseLocked", "text").indexOf("Close this wallet to change these, under Node") === 0, true)
+            expect("Settings shows the sheet's choice", [prop("settingsSourcePublic", "checked"), prop("settingsPublicChosen", "checked"),
+                   prop("settingsPublicPicked", "checked"), prop("settingsSourceOwn", "checked")].join(" "), "true true false false")
+            expect("...read-only", prop("settingsSourcePublic", "enabled") + " " + prop("settingsTorUse_identifying", "enabled"), "false false")
+            expect("...and Use Tor for", shown("settingsTorUsePane") + " " + prop("settingsTorUse_identifying", "checked"), "true true")
+            expect("...and Which Tor", shown("settingsBuiltInTor") + " " + prop("settingsBuiltInTor", "checked"), "true true")
+            expect("...and where to change them", prop("settingsNodeLocked", "message").indexOf("These settings apply when a wallet opens") === 0, true)
             expect("an open wallet: no first-run screen", shown("torUsePage"), false)
             fake.nodeConfigJson = JSON.stringify({ url: "http://192.168.1.4:18081", own: true, mode: "remote", source: "external", network: "stagenet" })
         },
         function (v) {
-            expect("your own node in Settings: no Use Tor for", prop("settingsNodeSource", "text") + " " + shown("settingsTorUse"),
-                   "Your own node at an address, reached directly false")
+            expect("your own node in Settings: no Use Tor for", [prop("settingsSourceOwn", "checked"), prop("settingsOwnAtAddress", "checked"),
+                   shown("settingsTorUsePane"), shown("settingsBuiltInTor")].join(" "), "true true false false")
+            expect("...reached directly", prop("settingsOwnRoute", "text"), "Reached directly. Tor can't reach your network.")
+            fake.nodeConfigJson = JSON.stringify({ url: "https://node.example.com:18081", own: true, reachThroughTor: true, mode: "remote",
+                                                   source: "external", network: "stagenet" })
+        },
+        function (v) {
+            expect("your own node on the internet: its Tor switch and Which Tor", [shown("settingsOwnTorSwitch"), prop("settingsOwnTorSwitch", "checked"),
+                   shown("settingsOwnBuiltInTor"), prop("settingsOwnBuiltInTor", "checked"), prop("settingsOwnBuiltInTor", "enabled")].join(" "),
+                   "true true true true false")
         }
     ]
     property int step: 0

@@ -89,7 +89,7 @@ there is no "Use it" or "Connect to".
 - **Save node** stores the choice on screen. A hidden field sends what is stored, never its edits,
   and never blocks Save: In Logos keeps the stored remote half, and an empty own Tor matters only
   while Which Tor shows. The sheet is read-only, with "Close your open accounts to change this.",
-  while a wallet is open, opening or closing. Settings shows the stored choice read-only.
+  while a wallet is open, opening or closing. Settings shows the stored choice in the sheet's shape, read-only.
 - **First run:** while the node says `torUseChosen: false`, the same top choice replaces the
   Wallets screen once, with Public sources preselected and Use Tor for under it. A fresh install
   preselects Only what identifies you; an install from before the setting preselects its current

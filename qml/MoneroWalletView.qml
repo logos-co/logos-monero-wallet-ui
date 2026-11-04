@@ -448,17 +448,6 @@ Item {
         if (root.ndSource === "own") return root.ndOwnKind === "logos" ? root.localOffered : ndOwnAddr.text.trim() !== ""
         return root.ndPublicKind === "picked" || ndHost.text.trim() !== ""
     }
-    // The stored choice, for Settings.
-    function sourceLine() {
-        var c = root.nodeCfg
-        if (root.storedSource === "own-logos") return "Your own node, in Logos"
-        if (root.storedSource === "own-address") {
-            var k = root.addressKind(c.url)
-            return "Your own node at an address, " + (k === "onion" || (k === "internet" && c.reachThroughTor !== false)
-                                                     ? "reached through Tor" : "reached directly")
-        }
-        return root.storedSource === "public-chosen" ? "Public sources: a node you choose" : "Public sources: a node picked for you"
-    }
     function localNodeLine() {
         if (root.localNode.available !== true)
             return "The Monero Node app isn't running a node for " + (root.activeNetwork || "this network") + " on this computer."
@@ -1198,33 +1187,111 @@ Item {
                         }
                     }
 
-                    // ---- Remote node: READ-ONLY here ----
-                    // The form lives on the Wallets screen, not in this tab. It can only be
-                    // saved while no wallet is open (wallet2 binds its daemon at open, and the
-                    // backend refuses the write), and this tab only exists while one IS open —
-                    // so a form here is visible exactly when it cannot be used. It was, and the
-                    // node was unchangeable from the app.
+                    // ---- Node: the Node sheet's shape, read-only ----
+                    // wallet2 binds its node at the open and saves are refused while one is open, so this
+                    // shows the stored choice; the sheet on the Wallets screen changes it.
                     LogosText { text: "Node"; font.pixelSize: 16 }
-                    LogosText { objectName: "settingsNodeSource"; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true
-                                text: root.sourceLine() }
-                    LogosText { textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary
-                                text: root.nodeLine() }
-                    LogosText { objectName: "settingsNodeUrl"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true; color: Theme.palette.textSecondary
-                                text: "Address: " + (root.nodeCfg.mode === "local"
-                                                     ? "the node on this device" + ((node.local || {}).rpcUrl ? " (" + node.local.rpcUrl + ")" : "")
-                                                     : (root.nodeCfg.url || "—")) }
-                    LogosText { textFormat: Text.PlainText; color: Theme.palette.textSecondary
-                                text: "Network: " + root.displayedNetwork }
-                    // Use Tor for applies to public sources only; read-only here for the same reason as the node.
-                    RowLayout {
-                        visible: root.torUse !== "" && root.storedSource.indexOf("public") === 0
+                    ColumnLayout {
+                        id: settingsNode
+                        objectName: "settingsNodePane"
+                        Layout.fillWidth: true
                         spacing: Theme.spacing.small
-                        LogosText { text: "Use Tor for:"; color: Theme.palette.textSecondary }
-                        LogosText { objectName: "settingsTorUse"; textFormat: Text.PlainText; color: Theme.palette.textSecondary
-                                    text: (root.torUseCopy[root.torUse] || {}).label || "" }
+                        readonly property int indent: Theme.spacing.xlarge + Theme.spacing.small
+                        readonly property string src: root.storedSource
+                        readonly property bool own: src.indexOf("own") === 0
+                        readonly property string kind: root.addressKind(root.nodeCfg.url || "")
+                        readonly property bool ownTor: !!root.nodeCfg.proxy && root.nodeCfg.proxy !== "tor"
+                        readonly property bool viaTor: own
+                            ? src === "own-address" && (kind === "onion" || (kind === "internet" && root.nodeCfg.reachThroughTor !== false))
+                            : root.torUse !== "none"
+
+                        LogosNotice { objectName: "settingsNodeLocked"; Layout.fillWidth: true; shown: true
+                                      message: "These settings apply when a wallet opens. Close the wallet to change them, under Node on the Wallets screen." }
+                        LogosText { text: "Where the wallet gets Monero's chain"; font.weight: Theme.typography.weightBold }
+
+                        RowLayout {
+                            spacing: Theme.spacing.small
+                            LogosRadioButton { objectName: "settingsSourceOwn"; enabled: false; checkable: false; checked: settingsNode.own; text: "Your own node" }
+                            LogosBadge { text: "Most private"; color: Theme.palette.success }
+                            Item { Layout.fillWidth: true }
+                        }
+                        ColumnLayout {
+                            visible: settingsNode.own
+                            Layout.fillWidth: true
+                            Layout.leftMargin: settingsNode.indent
+                            spacing: Theme.spacing.small
+                            LogosRadioButton { objectName: "settingsOwnInLogos"; enabled: false; checkable: false
+                                               checked: settingsNode.src === "own-logos"; text: "In Logos" }
+                            LogosText { objectName: "settingsLocalNode"; visible: settingsNode.src === "own-logos"; Layout.leftMargin: settingsNode.indent
+                                        Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText; color: Theme.palette.textSecondary
+                                        text: root.localNodeLine() + ((node.local || {}).rpcUrl ? " · " + node.local.rpcUrl : "") }
+                            LogosRadioButton { objectName: "settingsOwnAtAddress"; enabled: false; checkable: false
+                                               checked: settingsNode.src === "own-address"; text: "At an address" }
+                            ColumnLayout {
+                                visible: settingsNode.src === "own-address"
+                                Layout.fillWidth: true
+                                Layout.leftMargin: settingsNode.indent
+                                spacing: Theme.spacing.tiny
+                                LogosText { objectName: "settingsOwnAddress"; Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
+                                            color: Theme.palette.textSecondary; text: root.nodeCfg.url || "" }
+                                LogosText { objectName: "settingsOwnRoute"; visible: text !== ""; Layout.fillWidth: true; wrapMode: Text.Wrap
+                                            color: Theme.palette.textSecondary
+                                            text: settingsNode.kind === "lan" ? "Reached directly. Tor can't reach your network."
+                                                  : settingsNode.kind === "onion" ? "Always reached through Tor." : "" }
+                                LogosSwitch { objectName: "settingsOwnTorSwitch"; visible: settingsNode.kind === "internet"; enabled: false; checkable: false
+                                              checked: root.nodeCfg.reachThroughTor !== false; text: "Reach it through Tor" }
+                                WhichTor { prefix: "settingsOwn"; visible: settingsNode.viaTor; readOnly: true
+                                           choice: settingsNode.ownTor ? "own" : "tor"; proxy: settingsNode.ownTor ? root.nodeCfg.proxy : "" }
+                            }
+                        }
+
+                        RowLayout {
+                            spacing: Theme.spacing.small
+                            LogosRadioButton { objectName: "settingsSourcePublic"; enabled: false; checkable: false; checked: !settingsNode.own; text: "Public sources" }
+                            LogosText { text: "Nodes run by other people."; color: Theme.palette.textSecondary }
+                            Item { Layout.fillWidth: true }
+                        }
+                        ColumnLayout {
+                            visible: !settingsNode.own
+                            Layout.fillWidth: true
+                            Layout.leftMargin: settingsNode.indent
+                            spacing: Theme.spacing.small
+                            LogosRadioButton { objectName: "settingsPublicPicked"; enabled: false; checkable: false
+                                               checked: settingsNode.src === "public-picked"; text: "A node picked for you" }
+                            StoredAddresses { prefix: "settingsPicked"; visible: settingsNode.src === "public-picked"; Layout.leftMargin: settingsNode.indent }
+                            LogosRadioButton { objectName: "settingsPublicChosen"; enabled: false; checkable: false
+                                               checked: settingsNode.src === "public-chosen"; text: "A node you choose" }
+                            StoredAddresses { prefix: "settingsChosen"; visible: settingsNode.src === "public-chosen"; Layout.leftMargin: settingsNode.indent }
+                            ColumnLayout {
+                                objectName: "settingsTorUsePane"
+                                visible: root.torUse !== ""
+                                Layout.fillWidth: true
+                                Layout.topMargin: Theme.spacing.small
+                                spacing: Theme.spacing.tiny
+                                LogosText { text: "Use Tor for"; font.weight: Theme.typography.weightBold }
+                                Repeater {
+                                    model: root.torUseModes
+                                    TorUseOption {
+                                        required property string modelData
+                                        prefix: "settingsTorUse_"
+                                        mode: modelData
+                                        chosen: settingsNode.src === "public-chosen"
+                                        checked: root.torUse === modelData
+                                        explained: false
+                                        enabled: false
+                                    }
+                                }
+                                LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textTertiary
+                                            text: "Applies to every network that uses public sources." }
+                            }
+                            WhichTor { prefix: "settings"; visible: settingsNode.viaTor; readOnly: true
+                                       choice: settingsNode.ownTor ? "own" : "tor"; proxy: settingsNode.ownTor ? root.nodeCfg.proxy : "" }
+                        }
+
+                        LogosText { objectName: "settingsNodeStatus"; Layout.topMargin: Theme.spacing.small; Layout.fillWidth: true
+                                    wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText; color: Theme.palette.textSecondary; text: root.nodeLine() }
+                        LogosText { textFormat: Text.PlainText; color: Theme.palette.textSecondary; text: "Network: " + root.displayedNetwork }
                     }
-                    LogosText { objectName: "settingsTorUseLocked"; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textTertiary
-                                text: "Close this wallet to change these, under Node on the Wallets screen: the wallet binds its node when it opens." }
 
                     LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary
                                 text: "Engine: monero_c " + (status.libraryVersion || "") + " (LGPL-3.0, dynamically linked)" }
@@ -1347,29 +1414,49 @@ Item {
     }
 
     // Which Tor, wherever the choice above it uses Tor: the one that comes with Logos, or your own.
+    // The stored record's two addresses, for Settings.
+    component StoredAddresses: GridLayout {
+        property string prefix: ""
+        columns: 2; columnSpacing: 10; rowSpacing: 6
+        Layout.fillWidth: true
+        LogosText { text: "Direct address"; color: Theme.palette.textSecondary }
+        LogosText { objectName: parent.prefix + "Url"; Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
+                    color: Theme.palette.textSecondary; text: root.nodeCfg.url || "—" }
+        LogosText { text: "Address over Tor"; color: Theme.palette.textSecondary }
+        LogosText { objectName: parent.prefix + "Onion"; Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
+                    color: Theme.palette.textSecondary; text: root.nodeCfg.onionUrl || "—" }
+    }
+
     component WhichTor: ColumnLayout {
         id: which
         property string prefix: ""
+        // The sheet edits the draft; Settings passes the stored choice, read-only.
+        property bool readOnly: false
+        property string choice: root.ndWhichTor
+        property string proxy: root.ndProxyText
         Layout.fillWidth: true
         spacing: Theme.spacing.tiny
         LogosText { text: "Which Tor"; font.weight: Theme.typography.weightBold }
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacing.small
-            LogosRadioButton { objectName: which.prefix + "BuiltInTor"; checkable: false; checked: root.ndWhichTor === "tor"
+            LogosRadioButton { objectName: which.prefix + "BuiltInTor"; checkable: false; checked: which.choice === "tor"; enabled: !which.readOnly
                                text: "The Tor that comes with Logos"; onClicked: root.ndWhichTor = "tor" }
-            LogosBadge { objectName: which.prefix + "TorChip"; visible: root.ndWhichTor === "tor" && root.torView !== null
+            LogosBadge { objectName: which.prefix + "TorChip"; visible: which.choice === "tor" && root.torView !== null
                          text: root.torChipText(); color: root.torChipColor() }
-            LogosLink { objectName: which.prefix + "ManageTor"; visible: root.ndWhichTor === "tor"; text: "Manage Tor…"; underline: false
+            LogosLink { objectName: which.prefix + "ManageTor"; visible: which.choice === "tor"; text: "Manage Tor…"; underline: false
                         onActivated: root.manageTor() }
             Item { Layout.fillWidth: true }
         }
-        LogosRadioButton { objectName: which.prefix + "OwnTor"; checkable: false; checked: root.ndWhichTor === "own"
+        LogosRadioButton { objectName: which.prefix + "OwnTor"; checkable: false; checked: which.choice === "own"; enabled: !which.readOnly
                            text: "Your own Tor"; onClicked: root.ndWhichTor = "own" }
-        LogosTextField { objectName: which.prefix + "ProxyField"; visible: root.ndWhichTor === "own"; Layout.fillWidth: true
+        LogosTextField { objectName: which.prefix + "ProxyField"; visible: which.choice === "own" && !which.readOnly; Layout.fillWidth: true
                          Layout.leftMargin: Theme.spacing.xlarge + Theme.spacing.small
                          placeholderText: "Its SOCKS address, e.g. socks5h://127.0.0.1:9050"
-                         text: root.ndProxyText; onTextChanged: root.ndProxyText = text }
+                         text: which.proxy; onTextChanged: if (!which.readOnly) root.ndProxyText = text }
+        LogosText { objectName: which.prefix + "ProxyText"; visible: which.choice === "own" && which.readOnly; Layout.fillWidth: true
+                    Layout.leftMargin: Theme.spacing.xlarge + Theme.spacing.small; textFormat: Text.PlainText
+                    wrapMode: Text.WrapAnywhere; color: Theme.palette.textSecondary; text: which.proxy }
         LogosText { objectName: which.prefix + "TorNote"; visible: text !== ""; Layout.fillWidth: true; wrapMode: Text.Wrap
                     textFormat: Text.PlainText; color: Theme.palette.error; text: root.torNote }
     }
