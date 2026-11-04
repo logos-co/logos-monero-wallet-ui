@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QStringList>
 
 #include "logos_sdk.h"
 #include "qrcodegen.hpp"
@@ -35,11 +36,22 @@ void MoneroWalletUiBackend::say(const QString &line) {
     setLastError(cur + QLatin1Char('\n') + line);
 }
 
+// A poll that answers again takes back the line its failure left.
+void MoneroWalletUiBackend::unsay(const QString &context) {
+    if (context.isEmpty() || lastError().isEmpty()) return;
+    QStringList kept;
+    for (const QString &l : lastError().split(QLatin1Char('\n')))
+        if (!l.startsWith(context + QStringLiteral(": "))) kept << l;
+    setLastError(kept.join(QLatin1Char('\n')));
+}
+
 bool MoneroWalletUiBackend::ok(const QString &reply, const QString &context) {
     const QJsonObject o = parse(reply);
-    if (o.value("ok").toBool()) return true;
+    if (o.value("ok").toBool()) { unsay(context); return true; }
     QString e = o.value("error").toString();
-    if (e.isEmpty()) e = QStringLiteral("the wallet backend refused the request");
+    // An empty reply is a call that timed out, not a refusal.
+    if (e.isEmpty()) e = reply.trimmed().isEmpty() ? QStringLiteral("the wallet backend did not answer")
+                                                   : QStringLiteral("the wallet backend refused the request");
     say(context.isEmpty() ? e : QStringLiteral("%1: %2").arg(context, e));
     return false;
 }
@@ -51,7 +63,11 @@ void MoneroWalletUiBackend::clearAndRefresh() {
 }
 
 void MoneroWalletUiBackend::onContextReady() {
-    QObject::connect(&m_readPoll, &QTimer::timeout, [this] { loadStatus(); loadBalances(); syncHistoryToHeight(); });
+    QObject::connect(&m_readPoll, &QTimer::timeout, [this] {
+        loadStatus(); loadBalances(); syncHistoryToHeight();
+        // Read only on a refresh otherwise: a busy engine then left Receive without an address.
+        if (parse(receiveJson()).value("address").toString().isEmpty()) loadReceive();
+    });
     QObject::connect(&m_jobPoll, &QTimer::timeout, [this] { pollJob(); });
     QObject::connect(&m_sendPoll, &QTimer::timeout, [this] { pollSend(); });
     // Subscribe first, then reconcile; never call out synchronously from an event callback
