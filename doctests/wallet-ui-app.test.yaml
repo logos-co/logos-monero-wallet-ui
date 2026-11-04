@@ -162,6 +162,44 @@ sections:
               property: "storedSource"
               value: "own-address"
               timeout: 30000
+            - name: "Back to the node picked for you"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "chooseNodeSource"
+              args: ["public", "picked"]
+            - name: "Save node"
+              action: click
+              target: "Save node"
+            - name: "The picked node saves, with no address of its own"
+              # The app sends it without a url; a node module that required one refused the save.
+              action: expect_property
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              property: "storedSource"
+              value: "public-picked"
+              timeout: 30000
+            - name: "Your own node again, for the rest of this run"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "chooseNodeSource"
+              args: ["own", "address"]
+            - name: "...at the same unreachable local port"
+              action: set_text
+              find_by: "objectName"
+              find_value: "ownAddressField"
+              value: "http://127.0.0.1:1"
+            - name: "Save node"
+              action: click
+              target: "Save node"
+            - name: "Stored as your own node again"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              property: "storedSource"
+              value: "own-address"
+              timeout: 30000
             - name: "Open the Create sheet (via the root: a driver cannot click a LogosTabButton)"
               action: call_method
               find_by: "objectName"
