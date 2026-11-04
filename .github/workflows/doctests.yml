@@ -73,13 +73,11 @@ jobs:
 
       - name: Run doc-tests
         run: |
-          # The node pin is logos-monero-node-module#8 (your own node at an address) until it merges.
           nix run github:logos-co/logos-doctest -- run \
             doctests/wallet-ui-app.test.yaml \
             --verbose \
             --continue-on-fail \
             --release-for logos-monero-wallet-ui=${{ steps.commit.outputs.sha }} \
-            --release-for logos-monero-node-module=ce16b7bc5d7b49ccdab37eecf2098846ff5806d1 \
             --report "${{ runner.temp }}/doctest-report.html"
 
       - name: Stage report for upload
