@@ -63,7 +63,7 @@ sections:
           qt_mcp: "result-mcp"
           launch_timeout: 600
           tests:
-            - name: "A fresh install asks how the wallet should use Tor, before any wallet"
+            - name: "A fresh install asks where the wallet gets Monero's chain, before any wallet"
               # With `timeout`, expect_property polls; a text wait would match hidden items.
               action: expect_property
               find_by: "objectName"
@@ -72,7 +72,7 @@ sections:
               value: true
               timeout: 30000
               screenshot: "wallet-ui-tor-use.png"
-            - name: "Pick Nothing: this run's node is on this computer, so it is direct in every mode"
+            - name: "Public sources, with Use Tor for Nothing, so this run never starts Tor"
               # Through the root, as the options can sit below the fold of a scrolled page.
               action: call_method
               find_by: "objectName"
@@ -123,25 +123,83 @@ sections:
               find_value: "torUse_none"
               property: "checked"
               value: true
+            - name: "Choose your own node, at an address"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "chooseNodeSource"
+              args: ["own", "address"]
             - name: "...and its address field accepts input"
               action: expect_property
               find_by: "objectName"
-              find_value: "nodeHostField"
+              find_value: "ownAddressField"
               property: "enabled"
               value: true
-              screenshot: "wallet-ui-node.png"
             - name: "Point it at a port nothing is listening on"
               # Deliberately unreachable, and deliberately LOCAL: it makes the rest of this run
               # offline and deterministic, and it reproduces the state a user is in when their
-              # public node goes down. Saving it also exercises the write path that was
-              # unreachable from the app until this form moved here.
+              # node goes down. Saving it also exercises the write path that was unreachable
+              # from the app until this form moved here.
               action: set_text
               find_by: "objectName"
-              find_value: "nodeHostField"
+              find_value: "ownAddressField"
+              value: "http://127.0.0.1:1"
+            - name: "The address decides the route: this computer is reached directly"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "ownRouteLine"
+              property: "text"
+              value: "Reached directly. Tor can't reach your network."
+              screenshot: "wallet-ui-node.png"
+            - name: "Save node"
+              action: click
+              target: "Save node"
+            - name: "The node module stores it as your own node"
+              # `own` round-trips only through a node module that keeps it (CI pins that draft).
+              action: expect_property
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              property: "storedSource"
+              value: "own-address"
+              timeout: 30000
+            - name: "Back to the node picked for you"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "chooseNodeSource"
+              args: ["public", "picked"]
+            - name: "Save node"
+              action: click
+              target: "Save node"
+            - name: "The picked node saves, with no address of its own"
+              # The app sends it without a url; a node module that required one refused the save.
+              action: expect_property
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              property: "storedSource"
+              value: "public-picked"
+              timeout: 30000
+            - name: "Your own node again, for the rest of this run"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "chooseNodeSource"
+              args: ["own", "address"]
+            - name: "...at the same unreachable local port"
+              action: set_text
+              find_by: "objectName"
+              find_value: "ownAddressField"
               value: "http://127.0.0.1:1"
             - name: "Save node"
               action: click
               target: "Save node"
+            - name: "Stored as your own node again"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              property: "storedSource"
+              value: "own-address"
+              timeout: 30000
             - name: "Open the Create sheet (via the root: a driver cannot click a LogosTabButton)"
               action: call_method
               find_by: "objectName"
