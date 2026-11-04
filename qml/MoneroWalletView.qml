@@ -40,7 +40,8 @@ Item {
     property bool clearNodePassword: false
 
     // ---- "Use Tor for": the node module's all, identifying or none, asked once before any account ----
-    readonly property var torUseModes: ["identifying", "all", "none"]
+    // Most private first; identifying stays the default.
+    readonly property var torUseModes: ["all", "identifying", "none"]
     readonly property var torUseInfo: ready ? j(backend.torUseJson, "{}") : ({})
     readonly property string torUse: torUseModes.indexOf(torUseInfo.torUse) >= 0 ? torUseInfo.torUse : ""
     // False only from a node module that keeps the choice and has not been given it yet.
@@ -1136,6 +1137,48 @@ Item {
             // wallet — which is the exact bug this page was moved here to fix.
             objectName: "walletsNodePage"
             spacing: 8
+            // Most private first: your own node, then Use Tor for from Everything to Nothing.
+            LogosText { text: "Network privacy"; font.pixelSize: 16; font.weight: Theme.typography.weightBold }
+            ColumnLayout {
+                objectName: "ownNodeOption"
+                Layout.fillWidth: true
+                Layout.bottomMargin: Theme.spacing.small
+                spacing: Theme.spacing.tiny
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacing.small
+                    LogosText { text: "Run your own node"; font.weight: Theme.typography.weightBold }
+                    LogosBadge { text: "Most private"; color: Theme.palette.success }
+                    LogosBadge { objectName: "ownNodeInUse"; visible: root.nodeCfg.mode === "local"; text: "In use"; color: Theme.palette.textSecondary }
+                    Item { Layout.fillWidth: true }
+                }
+                LogosText {
+                    objectName: "ownNodeBenefits"
+                    Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.StyledText; color: Theme.palette.textSecondary
+                    text: "<b>Benefits:</b> the wallet talks only to the Monero node on this device, so no remote node sees your "
+                          + "IP address together with your sends and the outputs they spend, or when you open the wallet. Other "
+                          + "nodes see only that this computer runs a Monero node."
+                }
+                LogosText {
+                    objectName: "ownNodeCosts"
+                    Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.StyledText; color: Theme.palette.textSecondary
+                    text: "<b>Costs:</b> on mainnet, about 60 GB of disk pruned or 250 GB unpruned, and a first sync that takes "
+                          + "hours to days. Start it before opening a wallet, and keep it running while you use it."
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacing.small
+                    LogosButton { objectName: "manageLocalNodeButton"; text: "Open Monero Node…"; onClicked: root.manageLocalNode() }
+                    LogosButton { objectName: "useOwnNodeButton"; text: "Use it"; visible: root.localOffered && root.ndMode !== "local"
+                                  enabled: root.ready; onClicked: root.ndMode = "local" }
+                    LogosText { id: ownNodeSave; objectName: "ownNodeSave"; visible: root.ndMode === "local" && root.nodeCfg.mode !== "local"
+                                Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
+                                text: "Save node, below, to switch to it." }
+                    Item { Layout.fillWidth: true; visible: !ownNodeSave.visible }
+                }
+                LogosText { objectName: "nodeIntentNote"; visible: text !== ""; textFormat: Text.PlainText; wrapMode: Text.Wrap
+                            Layout.fillWidth: true; color: Theme.palette.error; text: root.nodeIntentNote }
+            }
             // The first-run choice, changed here only while no account is open. Absent from an older node module.
             ColumnLayout {
                 id: torUseSettings
@@ -1201,9 +1244,6 @@ Item {
                 LogosText { wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textTertiary
                             text: "Trusted and never proxied: it is your own node. Start it before opening a wallet, "
                                   + "which connects to its node when it opens. Your remote node settings are kept." }
-                LogosButton { objectName: "manageLocalNodeButton"; text: "Manage local node…"; onClicked: root.manageLocalNode() }
-                LogosText { visible: text !== ""; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true
-                            color: Theme.palette.error; text: root.nodeIntentNote }
                 // Follows the node while the user starts it elsewhere. Only while it is there to ask:
                 // an absent module costs 1.5 s per read.
                 Timer { interval: 3000; repeat: true

@@ -47,7 +47,7 @@ The app **provides** both Monero capabilities so another app can reach this wall
 Of those two it **uses** neither: managing wallets is a screen here, not a trip to a second app. A self-provided
 intent would dispatch to itself anyway, and the shell raises a chooser for every other case.
 
-It **uses** `monero.node.configure`: the node sheet's **Manage local node…** hands off to the
+It **uses** `monero.node.configure`: the node sheet's **Open Monero Node…** hands off to the
 app that runs the local node (`monerod_ui`).
 
 ## Networks
@@ -58,13 +58,16 @@ the engine checks their network when opened. The badge and Settings show the ope
 
 ## Use Tor for
 
-One setting for every network, kept by `monero_node_module`: **Only what identifies you**
-(`identifying`, recommended), **Everything** (`all`) or **Nothing** (`none`).
+One setting for every network, kept by `monero_node_module`, most private first: **Everything**
+(`all`), **Only what identifies you** (`identifying`, recommended) or **Nothing** (`none`).
 
 - **First run:** while the node says `torUseChosen: false`, a screen asks once, in place of the Wallets
   screen, with what happens, pros and cons for each. A fresh install preselects Only what identifies
   you; an install from before the setting preselects its current routing, tagged Current, so Continue
   never weakens it. A backend without `tor_use` shows no screen.
+- **Network privacy**, at the top of the node sheet: **Run your own node** comes first, with its
+  benefits and costs, **Open Monero Node…** and, with a node on this device, **Use it**, which picks
+  it in the form below for Save node. Use Tor for follows.
 - **Changing it:** in the node sheet (Node, on the Wallets screen), only while no wallet is open, opening
   or closing. The wallet's Settings tab shows the choice and "Close your open accounts to change this."
 - **The node sheet:** Direct node (`url`), Node over Tor (`onionUrl`; empty uses the direct node over

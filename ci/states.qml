@@ -11,9 +11,11 @@ Item {
     property QtObject logos: QtObject {
         signal viewModuleReadyChanged(string moduleName, bool isReady)
         signal intentRequested(string requestId, string intent, var params, string requesterName)
+        property var requests: []
+        property var lastCallback: null
         function module(name) { return fake }
         function isViewModuleReady(name) { return true }
-        function request(intent, params, cb) {}
+        function request(intent, params, cb) { requests = requests.concat([{ intent: intent, params: params }]); lastCallback = cb }
         function respond(id, ok, result, error) {}
         function watch(reply, ok, err) { ok(reply) }
     }
@@ -182,7 +184,27 @@ Item {
             expect("...enabled with no account open", ["identifying", "all", "none"].map(function (m) { return prop("torUse_" + m, "enabled") }),
                    [true, true, true])
             expect("...no lock line", shown("torUseLocked"), false)
-            expect("...the text behind What this means", find(view.item, "torUse_happens_all", 0), null)
+            var ys = ["ownNodeOption", "torUse_all", "torUse_identifying", "torUse_none"].map(function (n) {
+                var o = find(view.item, n, 0); return o && o.visible ? Math.round(o.mapToItem(null, 0, 0).y) : -1 })
+            expect("most private first: your own node, then Everything to Nothing",
+                   ys.every(function (y, i) { return y >= 0 && (i === 0 || y > ys[i - 1]) }) ? "in order" : JSON.stringify(ys), "in order")
+            expect("...with its benefits and costs", shown("ownNodeBenefits") && shown("ownNodeCosts"), true)
+            expect("...no Use it without a node on this device", shown("useOwnNodeButton"), false)
+            find(view.item, "manageLocalNodeButton", 0).clicked()
+            var asked = logos.requests[logos.requests.length - 1]
+            expect("Open Monero Node raises monero.node.configure", asked ? asked.intent + " " + asked.params.network : "<none>",
+                   "monero.node.configure stagenet")
+            logos.lastCallback({ ok: false, error: "unavailable" })
+            expect("...and says when the app is missing", shown("nodeIntentNote") && prop("nodeIntentNote", "text"), "The Monero node app is not installed.")
+            v.nodeIntentNote = ""
+            fake.localNodeJson = JSON.stringify({ available: true, rpcUrl: "http://127.0.0.1:38081", status: { state: "running" } })
+            expect("a node on this device: Use it", shown("useOwnNodeButton") + " " + shown("ownNodeInUse"), "true false")
+            find(view.item, "useOwnNodeButton", 0).clicked()
+            expect("...picks it in the form", v.ndMode + " " + shown("localNodePane") + " " + shown("ownNodeSave"), "local true true")
+            expect("...without saving", fake.last("saveNodeConfig"), null)
+            fake.localNodeJson = "{}"
+            v.ndMode = "remote"
+            expect("the text behind What this means", find(view.item, "torUse_happens_all", 0), null)
             find(view.item, "torUseExplain", 0).activated("")
         },
         function (v) {
