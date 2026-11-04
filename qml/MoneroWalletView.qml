@@ -192,6 +192,11 @@ Item {
     // daemon goes away, so this is the difference between "your balance is current" and "this is
     // what we last heard", and the sync chip has to render that difference.
     readonly property bool engineConnected: ready && walletOpen && !engineBusy && status.connected === true
+    // The engine reads the daemon's height only once synchronized, as mid catch-up that read
+    // waits behind the batch; until then the node module's probe says where the chain is.
+    readonly property int chainHeight: status.daemonHeight || (node.reachable === true ? node.height || 0 : 0)
+    readonly property int syncPct: status.syncPercent !== undefined ? status.syncPercent
+        : (chainHeight > 0 ? Math.floor(Math.min(status.walletHeight || 0, chainHeight) * 100 / chainHeight) : 0)
     readonly property bool viewOnly: !!status.watchOnly
     readonly property var nodeCfg: ready ? j(backend.nodeConfigJson, "{}") : ({})
     readonly property var localNode: ready ? j(backend.localNodeJson, "{}") : ({})
@@ -562,7 +567,7 @@ Item {
                 text: !root.ready ? "Connecting…" : (root.walletOpen
                     ? (root.engineBusy ? "Working…"
                        : ((root.engineConnected ? (status.synchronized ? "Synced " : "Syncing ") : "Last seen ")
-                          + (status.walletHeight || 0) + " / " + (status.daemonHeight || 0) + " (" + (status.syncPercent || 0) + "%)"
+                          + (status.walletHeight || 0) + " / " + root.chainHeight + " (" + root.syncPct + "%)"
                           + (root.engineConnected ? "" : " · not connected")))
                     : "No wallet open")
             }
@@ -607,7 +612,7 @@ Item {
                 // "0%" on a wallet that is 100% synced is the same fabrication the chip beside
                 // this line already refuses to make.
                 ? ("Open: " + status.wallet + " · " + status.state + " · "
-                   + (root.engineBusy ? "—" : ((status.syncPercent || 0) + "%")))
+                   + (root.engineBusy ? "—" : (root.syncPct + "%")))
                 : (status.state === "opening" ? "Opening…" : (status.state === "closing" ? "Closing…" : "No wallet open")))
         }
 
