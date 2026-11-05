@@ -1,7 +1,7 @@
 {
   "name": "monero_wallet_ui",
   "display_name": "Monero Wallet",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "ui_qml",
   "interface": "universal",
   "category": "wallet",
@@ -11,9 +11,9 @@
   "icon": "src/icons/monero_wallet.png",
   "view": "qml/MoneroWalletView.qml",
   "dependencies": [
-    { "name": "monero_wallet_backend", "version": "~0.1.0" },
-    { "name": "monero_wallet_core_module", "version": "~0.1.0" },
-    { "name": "monero_node_module", "version": "~0.1.0" }
+    { "name": "monero_wallet_backend", "version": "~0.2.0" },
+    { "name": "monero_wallet_core_module", "version": "~0.2.0" },
+    { "name": "monero_node_module", "version": "~0.2.0" }
   ],
   "provides": [
     {
