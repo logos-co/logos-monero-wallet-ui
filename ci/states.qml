@@ -499,14 +499,15 @@ Item {
             expect("a node that isn't holding payments: no notice", shown("nodeHoldsSendsNotice"), false)
             fake.sendStatusJson = JSON.stringify({ state: "sent", txids: "ab12" })
             fake.nodeHealthJson = JSON.stringify({ reachable: true, height: 10, mode: "local",
-                local: { state: "running", txProxy: "on", txProxyWaiting: true, txProxyReason: "Logos' Tor isn't running." },
+                local: { state: "running", txProxy: "on", txProxyWaiting: true,
+                         txProxyReason: "No Tor peer yet. Payments wait in the node until one connects." },
                 sends: { localSends: "node", localSendsChosen: false, localSendsRecommended: "node",
                          sendNode: { url: "http://plowsof.onion:38089", operator: null } } })
         },
         function (v) {
-            expect("your node holding payments: the notice, with its reason", [shown("nodeHoldsSendsNotice"),
-                   prop("nodeHoldsSendsNotice", "message").indexOf("Logos' Tor isn't running. Payments you send wait in your node") === 0],
-                   [true, true])
+            expect("your node holding payments: the notice, with the node's reason", [shown("nodeHoldsSendsNotice"),
+                   prop("nodeHoldsSendsNotice", "message")], [true, "No Tor peer yet. Payments wait in the node until one connects. "
+                   + "In Activity they show as pending, and they don't go out over the ordinary network."])
             expect("...a send says it waits", prop("sendSentLine", "text"), "Handed to your node, which holds it until it reaches Tor. txid: ab12")
             click("nodeHoldsSendsButton")
             fake.nodeHealthJson = JSON.stringify({ reachable: true, height: 10, mode: "local",

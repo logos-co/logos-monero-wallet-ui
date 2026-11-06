@@ -694,9 +694,9 @@ Item {
             Layout.fillWidth: true
             shown: root.ready && root.nodeHoldsSends
             title: "Your node is waiting for Tor"
-            message: (root.nodeInLogos.txProxyReason ? root.nodeInLogos.txProxyReason + " " : "")
-                     + "Payments you send wait in your node until it reaches Tor, and show as pending until then. "
-                     + "They don't go out over the ordinary network."
+            // The Monero Node module's reason already says payments wait, and for what.
+            message: (root.nodeInLogos.txProxyReason || "Payments you send wait in your node until it reaches Tor.")
+                     + " In Activity they show as pending, and they don't go out over the ordinary network."
             actions: [ LogosButton { objectName: "nodeHoldsSendsButton"; text: "Open Monero Node"; enabled: root.ready
                                      onClicked: root.manageLocalNode() } ]
         }

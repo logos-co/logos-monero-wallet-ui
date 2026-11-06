@@ -84,7 +84,8 @@ there is no "Use it" or "Connect to".
     once (`setLocalSends`, the backend's `set_local_sends`), as Use Tor for is; a refusal shows
     under it.
   - **Your node is waiting for Tor**, above the tabs, while your node in Logos sends over Tor but
-    has no Tor peer yet (its status `txProxyWaiting`, with `txProxyReason`) and payments go through
+    has no Tor peer yet or needs a restart for a moved Tor port (its status `txProxyWaiting`; the
+    notice shows its `txProxyReason`) and payments go through
     it. A payment sent then is accepted by your node and held in its pool until it reaches Tor,
     never sent over the ordinary network; the wallet lists it as pending, and the Send tab says
     "Handed to your node, which holds it until it reaches Tor." **Open Monero Node** raises
