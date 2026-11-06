@@ -60,6 +60,16 @@ Item {
             torUseJson = JSON.stringify(o)
             return ""
         }
+        // What setLocalSends answers: "" stores the route, as the node does.
+        property string sendsReply: ""
+        function setLocalSends(v) {
+            note("setLocalSends", [v])
+            if (sendsReply !== "") return sendsReply
+            var h = JSON.parse(nodeHealthJson || "{}")
+            if (h.sends) { h.sends.localSends = v; h.sends.localSendsChosen = true }
+            nodeHealthJson = JSON.stringify(h)
+            return ""
+        }
         function saveNodeConfig(c) { note("saveNodeConfig", [JSON.parse(c)]) }
         function prepareSend(s) { note("prepareSend", [s]) }
         function refresh() {}
@@ -249,8 +259,41 @@ Item {
             expect("your own node still stores the checked mode", fake.last("setTorUse"), ["setTorUse", "identifying"])
             expect("...and the node at that address", saved().own + " " + saved().url, "true http://192.168.1.20:18081")
             expect("...then the sheet closes", shown("nodeSheet"), false)
+            expect("an older node module: no Sending payments", shown("localSendsPane"), false)
             v.closeSheets()
             tor({ torUse: "identifying", torUseChosen: true })
+            fake.nodeConfigJson = JSON.stringify({ url: "http://192.168.1.20:18081", own: true, mode: "remote", network: "stagenet" })
+            fake.nodeHealthJson = JSON.stringify({ reachable: true, height: 10, route: "direct", mode: "remote",
+                sends: { localSends: "servers", localSendsChosen: false, localSendsRecommended: "servers",
+                         sendNode: { url: "http://plowsof.onion:38089", operator: null } } })
+            v.openSheet("node")
+        },
+        function (v) {
+            expect("your node stored: Sending payments under it, a public node over Tor, recommended",
+                   [shown("localSendsPane"), prop("localSends_servers", "checked"), shown("localSendsRecommended_servers"), shown("localSendsRecommended_node")],
+                   [true, true, true, false])
+            expect("...through the network's onion node", prop("localSendsServersLine", "text"), "Through a public node, at its onion address.")
+            expect("...the note names both routes", prop("ownNodeNote", "text").indexOf("as Sending payments says") > 0, true)
+            expect("...your node's note: its own IP", prop("localSendsNote_node", "text").indexOf("from its own IP address") > 0, true)
+            click("localSends_node")
+        },
+        function (v) {
+            expect("your node, stored at once", [fake.last("setLocalSends"), prop("localSends_node", "checked"), shown("localSendsServersLine")],
+                   [["setLocalSends", "node"], true, false])
+            fake.sendsReply = "Close your open accounts to change this."
+            click("localSends_servers")
+        },
+        function (v) {
+            expect("a refusal shows under the choice", [prop("localSendsNote", "text"), prop("localSends_node", "checked")],
+                   ["Close your open accounts to change this.", true])
+            fake.sendsReply = ""
+            fake.localNodeJson = JSON.stringify({ available: true, rpcUrl: "http://127.0.0.1:38081" })
+            click("ownInLogos")
+        },
+        function (v) {
+            expect("another node in the form: no Sending payments until it is saved", [prop("ownInLogos", "checked"), shown("localSendsPane")], [true, false])
+            fake.localNodeJson = "{}"
+            v.closeSheets()
             fake.nodeConfigJson = JSON.stringify({ url: "https://node2.monerodevs.org:38089", onionUrl: "http://plowsof.onion:38089",
                                                    trusted: false, mode: "remote", source: "default", network: "stagenet" })
             fake.nodeHealthJson = JSON.stringify({ reachable: false, mode: "remote", tor: { state: "connecting", progress: 40, answered: true } })
@@ -453,6 +496,34 @@ Item {
         function (v) {
             expect("on Tor", prop("torRouteLine", "text"), "Over Tor")
             expect("...sends open", shown("sendWaitNote") + " " + prop("reviewButton", "enabled"), "false true")
+            expect("a node that isn't holding payments: no notice", shown("nodeHoldsSendsNotice"), false)
+            fake.sendStatusJson = JSON.stringify({ state: "sent", txids: "ab12" })
+            fake.nodeHealthJson = JSON.stringify({ reachable: true, height: 10, mode: "local",
+                local: { state: "running", txProxy: "on", txProxyWaiting: true,
+                         txProxyReason: "No Tor peer yet. Payments wait in the node until one connects." },
+                sends: { localSends: "node", localSendsChosen: false, localSendsRecommended: "node",
+                         sendNode: { url: "http://plowsof.onion:38089", operator: null } } })
+        },
+        function (v) {
+            expect("your node holding payments: the notice, with the node's reason", [shown("nodeHoldsSendsNotice"),
+                   prop("nodeHoldsSendsNotice", "message")], [true, "No Tor peer yet. Payments wait in the node until one connects. "
+                   + "In Activity they show as pending, and they don't go out over the ordinary network."])
+            expect("...a send says it waits", prop("sendSentLine", "text"), "Handed to your node, which holds it until it reaches Tor. txid: ab12")
+            click("nodeHoldsSendsButton")
+            fake.nodeHealthJson = JSON.stringify({ reachable: true, height: 10, mode: "local",
+                local: { state: "running", txProxy: "on", txProxyWaiting: true }, sends: { localSends: "servers", sendNode: {} } })
+        },
+        function (v) {
+            var asked = logos.requests[logos.requests.length - 1]
+            expect("...the button opens the Monero Node app", asked ? asked.intent : "<none>", "monero.node.configure")
+            expect("sends through a public node: no notice", shown("nodeHoldsSendsNotice"), false)
+            fake.nodeHealthJson = JSON.stringify({ reachable: true, height: 10, mode: "local", local: { state: "running", txProxy: "on", txProxyWaiting: false } })
+        },
+        function (v) {
+            expect("your node on Tor: no notice, and a send is broadcast", [shown("nodeHoldsSendsNotice"), prop("sendSentLine", "text")],
+                   [false, "Broadcast. txid: ab12"])
+            fake.sendStatusJson = "{}"
+            fake.nodeHealthJson = JSON.stringify({ reachable: true, height: 2000, route: "proxied", rttMs: 900, mode: "remote" })
             fake.statusJson = JSON.stringify({ state: "ready", wallet: "w", network: "stagenet", route: "direct", torUse: "none", connected: true })
         },
         function (v) {

@@ -120,6 +120,17 @@ QString MoneroWalletUiBackend::setTorUse(QString mode) {
     return {};
 }
 
+QString MoneroWalletUiBackend::setLocalSends(QString via) {
+    const QJsonObject o = parse(modules().monero_wallet_backend.set_local_sends(via));
+    if (!o.value("ok").toBool()) {
+        const QString e = o.value("error").toString();
+        return e.isEmpty() ? QStringLiteral("The wallet backend did not store the choice.") : e;
+    }
+    loadTorUse();
+    loadStatus();
+    return {};
+}
+
 // Not on the read poll: with monerod_module absent this costs the node module's 1.5 s bound.
 void MoneroWalletUiBackend::refreshLocalNode() {
     const QString r = modules().monero_wallet_backend.local_node();

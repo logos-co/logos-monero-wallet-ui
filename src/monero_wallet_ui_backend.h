@@ -37,6 +37,7 @@ public:
     void closeWallet() override;
     void saveNodeConfig(QString configJson) override;
     QString setTorUse(QString mode) override;
+    QString setLocalSends(QString via) override;
     void refreshLocalNode() override;
 
     // Receiving.
