@@ -77,7 +77,7 @@ Item {
             happens: "Each time you open the wallet, it catches up from a regular Monero node directly. Once caught up, or if "
                      + "that node stalls, it switches to a node reachable only over Tor for everything else, sends included.",
             pros: "Catching up is much faster than over Tor. The node that sees your sends, and the outputs they spend, "
-                  + "never sees your IP address. On mainnet it is run by someone other than the catch-up node.",
+                  + "never sees your IP address, and is run by someone other than the catch-up node.",
             cons: "The catch-up node can see that your IP address uses a Monero wallet, when you open it, and the block it "
                   + "starts from. If it stops answering well, the other public nodes are tried directly too. Your internet "
                   + "provider can see that you use Monero, and when. You can send only once the wallet has moved to Tor."
@@ -338,6 +338,8 @@ Item {
             : ("Node: " + (node.error || "unknown"))
     }
     function nodeChip() {
+        // The node module checks the Tor target; while catching up the wallet reads another node directly.
+        if (root.walletOpen && status.route === "catch_up") return "catching up directly"
         var local = node.mode === "local"
         if (node.reachable === true)
             return (local ? "local node " : "node " + (node.route === "proxied" ? "over Tor" : (node.route || "")) + " ") + (node.rttMs || 0) + "ms"
