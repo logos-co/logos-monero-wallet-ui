@@ -311,6 +311,13 @@ sections:
               property: "displayText"
               value: "mainnet"
               timeout: 15000
+            - name: "The Use Tor for shown is Mainnet's"
+              # Read after the network list; an older backend names no network, and the view falls back to the active one.
+              action: expect_property
+              find_value: "moneroWalletRoot"
+              property: "torUseNetwork"
+              value: "mainnet"
+              timeout: 15000
             - name: "Each network asks once for its own setting: Nothing again on Mainnet"
               # A node module that keeps one setting for every network doesn't ask; these two calls then store the same mode.
               action: call_method
