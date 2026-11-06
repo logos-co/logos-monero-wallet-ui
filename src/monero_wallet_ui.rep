@@ -46,8 +46,8 @@ class MoneroWalletUi
     // proxy absent or "tor" = the Tor that comes with Logos, else your own socks5h://. own: a node
     // you run, routed by its address; source "default": the node the node module picks.
     PROP(QString nodeConfigJson="{}" READONLY)
-    // "Use Tor for", one setting for every network: { torUse: all|identifying|none, torUseChosen,
-    // existing }. Empty from a backend that predates it.
+    // "Use Tor for" for the active network: { torUse: all|identifying|none, torUseChosen,
+    // existing, network }. Empty from a backend that predates it.
     PROP(QString torUseJson="" READONLY)
     // Whether monerod_module can serve the active network, read when the node sheet opens:
     // { available, rpcUrl, status: { state, network, height, targetHeight, ... }, error }

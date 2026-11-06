@@ -294,25 +294,50 @@ sections:
             - name: "Allow the completed close job to reach the UI poller"
               action: sleep
               ms: 1500
-            - name: "The network picker is ready after closing"
+            - name: "The network picker in the header is enabled after closing"
               action: expect_property
-              find_value: "networkBox"
+              find_value: "networkPicker"
               property: "enabled"
               value: true
+              timeout: 15000
             - name: "Select Mainnet"
               action: call_method
               find_value: "moneroWalletRoot"
               method: "selectNetwork"
               args: ["mainnet"]
+            - name: "The header shows Mainnet"
+              action: expect_property
+              find_value: "networkPicker"
+              property: "displayText"
+              value: "mainnet"
+              timeout: 15000
+            - name: "Each network asks once for its own setting: Nothing again on Mainnet"
+              # A node module that keeps one setting for every network doesn't ask; these two calls then store the same mode.
+              action: call_method
+              find_value: "moneroWalletRoot"
+              method: "chooseTorUse"
+              args: ["none"]
+            - name: "Continue on Mainnet"
+              action: call_method
+              find_value: "moneroWalletRoot"
+              method: "continueTorUse"
+              args: []
+            - name: "The Wallets screen shows for Mainnet"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "walletsPage"
+              property: "visible"
+              value: true
+              timeout: 30000
             - name: "Mainnet has no Stagenet wallet to open"
               action: wait_for
               texts: ["No wallets on mainnet yet"]
               timeout: 15000
-            - name: "The network badge is Mainnet with no wallet open"
+            - name: "The header still shows Mainnet with no wallet open"
               action: expect_property
-              find_value: "networkChip"
-              property: "text"
-              value: "MAINNET"
+              find_value: "networkPicker"
+              property: "displayText"
+              value: "mainnet"
             - name: "Mainnet does not list the Stagenet wallet"
               action: expect_property
               find_value: "walletsEmpty"
@@ -376,9 +401,9 @@ sections:
               action: wait_for
               texts: ["Wallet: doctest"]
               timeout: 30000
-            - name: "The open wallet badge reports its actual Stagenet network"
+            - name: "The header reports the open wallet's actual Stagenet network"
               action: expect_property
-              find_value: "networkChip"
-              property: "text"
-              value: "STAGENET"
+              find_value: "networkPicker"
+              property: "displayText"
+              value: "stagenet"
               screenshot: "wallet-ui-network-isolation.png"

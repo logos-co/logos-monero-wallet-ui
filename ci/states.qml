@@ -137,7 +137,10 @@ Item {
         },
         function (v) {
             expect("a fresh install asks first", shown("torUsePage") + " " + shown("walletsPage"), "true false")
-            expect("the question", prop("startIntro", "text").indexOf("Where should this wallet get Monero's chain?"), 0)
+            expect("...for this network", prop("torUseNetworkLine", "text"), "For stagenet. Each network has its own setting, asked the first time you use it.")
+            expect("...in the shared words", prop("torUseIntro", "text").indexOf("Your own node is the most private."), 0)
+            expect("the network, picked in the header", prop("networkPicker", "displayText") + " " + prop("networkPicker", "enabled"), "stagenet true")
+            expect("...not on the Wallets screen", shown("networkBox"), "<no networkBox>")
             expect("public sources preselected", prop("startPublic", "checked") + " " + prop("startOwn", "checked"), "true false")
             expect("...with Use Tor for under it", shown("startPublicOptions") + " " + shown("startOwnNote"), "true false")
             expect("most private first", inOrder(["startOwn", "startPublic", "torUseStart_all", "torUseStart_identifying", "torUseStart_none"]), "in order")
@@ -145,7 +148,8 @@ Item {
                    ["Only what identifies you", "Everything", "Nothing"])
             expect("...each with what happens, pros and cons", ["identifying", "all", "none"].every(function (m) {
                 return ["happens_", "pros_", "cons_"].every(function (k) { return shown("torUseStart_" + k + m) === true }) }), true)
-            expect("...in the plan's words", prop("torUseStart_cons_identifying", "text").indexOf("You can send only once the wallet has caught up and moved to Tor.") > 0, true)
+            expect("...in the plan's words", prop("torUseStart_cons_identifying", "text").indexOf("You can send only once the wallet has moved to Tor.") > 0, true)
+            expect("...and what every mode shares", shown("torUseStartEveryMode"), true)
             expect("fresh: identifying preselected", checks("torUseStart_"), [true, false, false])
             expect("...and Recommended", shown("torUseStart_recommended_identifying"), true)
             expect("...no Current tag", ["all", "none", "identifying"].some(function (m) { return shown("torUseStart_current_" + m) === true }), false)
@@ -184,6 +188,19 @@ Item {
         },
         function (v) {
             expect("...and never shows again", shown("torUsePage"), false)
+            v.torUseAnswered = true
+            fake.networksJson = JSON.stringify({ networks: ["mainnet", "stagenet"], active: "mainnet" })
+            tor({ torUse: "identifying", torUseChosen: false, network: "mainnet" })
+        },
+        function (v) {
+            expect("another network asks for itself", shown("torUsePage") + " " + prop("torUseNetworkLine", "text"),
+                   "true For mainnet. Each network has its own setting, asked the first time you use it.")
+            expect("...the header shows it", prop("networkPicker", "displayText"), "mainnet")
+            fake.networksJson = JSON.stringify({ networks: ["mainnet", "stagenet"], active: "stagenet" })
+            tor({ torUse: "none", torUseChosen: true, network: "stagenet" })
+        },
+        function (v) {
+            expect("back on stagenet: chosen there", shown("torUsePage") + " " + prop("networkPicker", "displayText"), "false stagenet")
             fake.torUseJson = ""
         },
         function (v) {
@@ -222,10 +239,11 @@ Item {
             expect("...your own node folded", shown("ownNodeOption") + " " + shown("publicChosenPane"), "false false")
             expect("...Use Tor for under it", shown("torUseSettings") + " " + JSON.stringify(checks("torUse_")), "true [true,false,false]")
             expect("...enabled with no account open", ["identifying", "all", "none"].map(function (m) { return prop("torUse_" + m, "enabled") }), [true, true, true])
-            expect("...for every public network", prop("torUseScope", "text"), "Applies to every network that uses public sources.")
+            expect("...for this network", prop("nodeNetworkLine", "text"), "For stagenet. Each network has its own.")
+            expect("...and what every mode shares", shown("torUseEveryMode"), true)
             expect("...no lock line", shown("torUseLocked"), false)
             expect("the sheet reads top to bottom", inOrder(["sourceOwn", "sourcePublic", "publicPicked", "publicChosen", "torUse_all",
-                                                              "torUse_identifying", "torUse_none", "publicBuiltInTor", "saveNodeButton"]), "in order")
+                                                              "torUse_identifying", "torUse_none", "publicBuiltInTor"]), "in order")
             expect("Which Tor under Use Tor for, with the Tor chip", shown("publicBuiltInTor") + " " + prop("publicBuiltInTor", "checked")
                    + " " + prop("publicTorChip", "text") + " " + shown("publicManageTor"), "true true Connecting to Tor… 40% true")
             var notes = findAll(find(view.item, "nodeSheet", 0), function (o) { return typeof o.text === "string" && o.text.indexOf("Benefits:") >= 0 })
@@ -351,7 +369,11 @@ Item {
             expect("a chosen address on your network says what it becomes", shown("chosenLanNote"), true)
             click("saveNodeButton")
             expect("...and a new address drops the login", [saved().username, saved().password], ["", ""])
-            find(view.item, "torUseExplain", 0).activated("")
+            setText("nodeOnionField", "http://x.onion:18089")
+        },
+        function (v) {
+            expect("...but not with an address over Tor", shown("chosenLanNote"), false)
+            setText("nodeOnionField", "")
         },
         function (v) {
             expect("What this means, for a node you choose", shown("torUse_happens_all") && prop("torUse_happens_all", "text").indexOf("your address over Tor") > 0, true)
@@ -392,7 +414,7 @@ Item {
             find(view.item, "sendAmountField", 0).text = "1"
         },
         function (v) {
-            expect("catching up says so", prop("torRouteLine", "text"), "Catching up directly. Sends wait until the wallet has caught up and moved to Tor.")
+            expect("catching up says so", prop("torRouteLine", "text"), "Catching up directly. Sends wait until the wallet has moved to Tor.")
             expect("...sends wait", shown("sendWaitNote") + " " + prop("reviewButton", "enabled"), "true false")
             fake.statusJson = JSON.stringify({ state: "ready", wallet: "w", network: "stagenet", route: "waiting_for_tor", onTor: false,
                                                waitingForTor: true, torUse: "identifying", connected: false })
