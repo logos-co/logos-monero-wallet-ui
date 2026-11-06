@@ -251,11 +251,15 @@ Item {
                                                + "node sees the payment but not your IP address, and your node's peers don't see it leave "
                                                + "your node first. Each send takes a few seconds more."
     readonly property string sendsNodeNote: ndOwnKind === "logos" && sendsRecommended === "node"
-        ? "No public node is contacted. The Monero Node app sends it over Tor, so its peers can't tell it came from your node."
+        ? "No public node is contacted. The Monero Node app sends it over Tor, so its peers can't tell it came from your node. "
+          + "Until the node reaches Tor, the payment waits in it."
         : ndOwnKind === "logos"
         ? "No public node is contacted, but your node passes it to its peers from this computer's IP address, so they can tell it "
           + "came from you. On mainnet the Monero Node app can send over Tor."
         : "No public node is contacted, but your node passes it to its peers from its own IP address, unless it is set to send over Tor."
+    // Your node in Logos sends over Tor only, and has no Tor peer yet: it holds payments until it has one.
+    readonly property var nodeInLogos: node.mode === "local" && node.local ? node.local : ({})
+    readonly property bool nodeHoldsSends: nodeInLogos.txProxyWaiting === true && localSends !== "servers"
     function setLocalSends(via) {
         root.sendsNote = ""
         logos.watch(backend.setLocalSends(via),
@@ -685,6 +689,18 @@ Item {
         LogosText { objectName: "torRouteLine"; visible: root.walletOpen && text !== ""; text: root.routeLine(); textFormat: Text.PlainText
                     wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary }
 
+        LogosNotice {
+            objectName: "nodeHoldsSendsNotice"
+            Layout.fillWidth: true
+            shown: root.ready && root.nodeHoldsSends
+            title: "Your node is waiting for Tor"
+            message: (root.nodeInLogos.txProxyReason ? root.nodeInLogos.txProxyReason + " " : "")
+                     + "Payments you send wait in your node until it reaches Tor, and show as pending until then. "
+                     + "They don't go out over the ordinary network."
+            actions: [ LogosButton { objectName: "nodeHoldsSendsButton"; text: "Open Monero Node"; enabled: root.ready
+                                     onClicked: root.manageLocalNode() } ]
+        }
+
         LogosText { objectName: "errorLine"; visible: root.ready && backend.lastError !== ""; text: root.ready ? backend.lastError : ""; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.error }
 
         // A send whose outcome is unknown is reported HERE, above the tabs, not inside the Send
@@ -876,9 +892,11 @@ Item {
                         LogosText { objectName: "previewAmount"; visible: !!send.preview; textFormat: Text.PlainText; text: "Amount: " + (send.preview ? send.preview.amountXmr : "") + " XMR" }
                         LogosText { objectName: "previewFee"; visible: !!send.preview; textFormat: Text.PlainText; text: "Fee: " + (send.preview ? send.preview.feeXmr : "") + " XMR" }
                         LogosText { objectName: "previewTotal"; visible: !!send.preview; textFormat: Text.PlainText; text: "Total: " + (send.preview ? send.preview.totalXmr : "") + " XMR" }
-                        LogosText { visible: send.state === "sent"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
-                                    text: send.txids ? ("Broadcast. txid: " + send.txids)
-                                                     : "Broadcast. Its transaction id will appear in Activity once the wallet re-syncs." }
+                        LogosText { objectName: "sendSentLine"; visible: send.state === "sent"; textFormat: Text.PlainText
+                                    wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
+                                    text: (root.nodeHoldsSends ? "Handed to your node, which holds it until it reaches Tor." : "Broadcast.")
+                                          + (send.txids ? " txid: " + send.txids
+                                                        : " Its transaction id will appear in Activity once the wallet re-syncs.") }
                         RowLayout {
                             LogosButton { objectName: "confirmSendButton"; text: "Confirm and broadcast"; visible: send.state === "previewed"; onClicked: backend.confirmSend() }
                             LogosButton {

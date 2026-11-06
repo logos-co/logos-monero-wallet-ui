@@ -83,6 +83,12 @@ there is no "Use it" or "Connect to".
     in Logos while the Monero Node app sends over Tor, else the public node. A pick is stored at
     once (`setLocalSends`, the backend's `set_local_sends`), as Use Tor for is; a refusal shows
     under it.
+  - **Your node is waiting for Tor**, above the tabs, while your node in Logos sends over Tor but
+    has no Tor peer yet (its status `txProxyWaiting`, with `txProxyReason`) and payments go through
+    it. A payment sent then is accepted by your node and held in its pool until it reaches Tor,
+    never sent over the ordinary network; the wallet lists it as pending, and the Send tab says
+    "Handed to your node, which holds it until it reaches Tor." **Open Monero Node** raises
+    `monero.node.configure`.
 - **Public sources**, nodes run by other people:
   - **A node picked for you:** the node module's seeded node, moved by health on mainnet. Saved as
     `source: "default"`, so the node module, not this form, supplies the address.
