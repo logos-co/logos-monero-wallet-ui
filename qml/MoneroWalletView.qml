@@ -63,7 +63,7 @@ Item {
     readonly property string ownNodeSummary: "A Monero node, in Logos or at an address."
     readonly property string ownNodeNote: "<b>Benefits:</b> the wallet asks only your node for the chain and sends only through it, so "
                                           + "no one else's node sees your wallet's requests or which outputs your sends spend. Your node "
-                                          + "passes your sends on to its peers from its own IP address. "
+                                          + "passes your sends on to its peers from its own IP address.<br><br>"
                                           + "<b>Costs:</b> on mainnet about 60 GB of disk pruned or 250 GB unpruned, a first sync that "
                                           + "takes hours to days, and the node must run while you use the wallet."
     readonly property string publicSummary: "Monero nodes run by other people."
@@ -314,7 +314,11 @@ Item {
         root.clearNodePassword = false
         root.nodeSavePending = false
         root.nodeFormNetwork = root.nodeCfg.network || ""
+        root.ndStored = JSON.stringify(root.nodeDraft())
     }
+    // The form as resetNodeForm() filled it: Done saves only a change from it.
+    property string ndStored: ""
+    function nodeDraftChanged() { return JSON.stringify(root.nodeDraft()) !== root.ndStored }
     // The node line for the sheet and Settings. In local mode it describes the node on this
     // device, including when it is stopped or serving another network.
     function nodeLine() {
@@ -479,12 +483,31 @@ Item {
     // so nothing lingers in a visible item.
     TextEdit { id: clipHelper; visible: false; width: 0; height: 0 }
 
-    // One "Use Tor for" option: its label and tags, then what happens, pros and cons unless the open wallet's Settings shows it.
-    component TorUseOption: ColumnLayout {
+    // An "i" beside a choice; its dialog holds the explanation, one paragraph per line.
+    component ChoiceInfo: LogosInfoButton {
+        id: choiceInfo
+        property var lines: []   // [{ name: objectName, text: StyledText }]
+        dialogContentItem: ColumnLayout {
+            spacing: Theme.spacing.medium
+            Repeater {
+                model: choiceInfo.lines
+                LogosText {
+                    required property var modelData
+                    objectName: modelData.name || ""
+                    Layout.fillWidth: true; Layout.preferredWidth: 1; wrapMode: Text.Wrap; textFormat: Text.StyledText
+                    color: Theme.palette.textSecondary; text: modelData.text || ""
+                }
+            }
+        }
+    }
+
+    // One "Use Tor for" option: its label and tags; what happens, pros and cons behind its "i".
+    component TorUseOption: RowLayout {
         id: option
         property string prefix: ""
         property string mode: ""
         property bool checked: false
+        property bool choosable: true
         property bool explained: true
         // For a node you choose rather than one picked for you.
         property bool chosen: false
@@ -493,26 +516,19 @@ Item {
             ? Object.assign({}, root.torUseCopy[mode] || ({}), { happens: root.torUseChosenHappens[mode] })
             : (root.torUseCopy[mode] || ({}))
         Layout.fillWidth: true
-        spacing: Theme.spacing.tiny
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacing.small
-            LogosRadioButton { objectName: option.prefix + option.mode; checkable: false; checked: option.checked
-                               text: option.copy.label || ""; onClicked: option.picked() }
-            LogosBadge { objectName: option.prefix + "recommended_" + option.mode; visible: option.mode === "identifying"
-                         text: "Recommended"; color: Theme.palette.success }
-            Item { Layout.fillWidth: true }
+        spacing: Theme.spacing.small
+        LogosRadioButton { objectName: option.prefix + option.mode; checkable: false; checked: option.checked
+                           enabled: option.choosable; text: option.copy.label || ""; onClicked: option.picked() }
+        LogosBadge { objectName: option.prefix + "recommended_" + option.mode; visible: option.mode === "identifying"
+                     text: "Recommended"; color: Theme.palette.success }
+        ChoiceInfo {
+            objectName: option.prefix + "info_" + option.mode
+            visible: option.explained
+            title: option.copy.label || ""
+            lines: [["What happens", "happens_", option.copy.happens], ["Pros", "pros_", option.copy.pros], ["Cons", "cons_", option.copy.cons]]
+                   .map(function (l) { return { name: option.prefix + l[1] + option.mode, text: "<b>" + l[0] + ":</b> " + (l[2] || "") } })
         }
-        Repeater {
-            model: option.explained ? [["What happens", option.copy.happens], ["Pros", option.copy.pros], ["Cons", option.copy.cons]] : []
-            LogosText {
-                required property var modelData
-                required property int index
-                objectName: option.prefix + ["happens_", "pros_", "cons_"][index] + option.mode
-                Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.StyledText; color: Theme.palette.textSecondary
-                text: "<b>" + modelData[0] + ":</b> " + (modelData[1] || "")
-            }
-        }
+        Item { Layout.fillWidth: true }
     }
     property string copied: ""
     Timer { id: copiedTimer; interval: 1400; onTriggered: root.copied = "" }
@@ -564,7 +580,8 @@ Item {
                        : ((root.engineConnected ? (status.synchronized ? "Synced " : "Syncing ") : "Last seen ")
                           + (status.walletHeight || 0) + " / " + root.chainHeight + " (" + root.syncPct + "%)"
                           + (root.engineConnected ? "" : " · not connected")))
-                    : "No wallet open")
+                    : "")
+                visible: text !== ""
             }
             LogosText { objectName: "nodeChip"; textFormat: Text.PlainText; font.pixelSize: 12; color: Theme.palette.textSecondary
                         text: root.nodeChip() }
@@ -1195,7 +1212,7 @@ Item {
                                         chosen: settingsNode.src === "public-chosen"
                                         checked: root.torUse === modelData
                                         explained: false
-                                        enabled: false
+                                        choosable: false
                                     }
                                 }
                                 LogosText { objectName: "settingsTorUseNetwork"; Layout.fillWidth: true; wrapMode: Text.Wrap
@@ -1390,7 +1407,7 @@ Item {
             backend.refreshLocalNode()
         }
         // One decision, top to bottom: your own node or public sources, and under each only what it uses.
-        // Save stays in view below the scrolling part.
+        // Done stays in view below the scrolling part.
         contentItem: ColumnLayout {
             spacing: Theme.spacing.small
             ScrollView {
@@ -1435,6 +1452,7 @@ Item {
                             LogosRadioButton { objectName: "sourceOwn"; checkable: false; checked: root.ndSource === "own"; text: "Your own node"
                                                onClicked: root.chooseNodeSource("own") }
                             LogosBadge { text: "Most private"; color: Theme.palette.success }
+                            ChoiceInfo { objectName: "ownNodeInfo"; title: "Your own node"; lines: [{ name: "ownNodeNote", text: root.ownNodeNote }] }
                             Item { Layout.fillWidth: true }
                         }
                         LogosText { Layout.fillWidth: true; Layout.leftMargin: nodeForm.indent; wrapMode: Text.Wrap
@@ -1445,9 +1463,6 @@ Item {
                             Layout.fillWidth: true
                             Layout.leftMargin: nodeForm.indent
                             spacing: Theme.spacing.small
-                            LogosText { objectName: "ownNodeNote"; Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.StyledText
-                                        color: Theme.palette.textSecondary; text: root.ownNodeNote }
-
                             LogosRadioButton { objectName: "ownInLogos"; checkable: false; checked: root.ndOwnKind === "logos"; text: "In Logos"
                                                enabled: root.localOffered; onClicked: root.chooseNodeSource("own", "logos") }
                             ColumnLayout {
@@ -1541,12 +1556,14 @@ Item {
                             Layout.leftMargin: nodeForm.indent
                             spacing: Theme.spacing.small
 
-                            LogosRadioButton { objectName: "publicPicked"; checkable: false; checked: root.ndPublicKind === "picked"
-                                               text: "A node picked for you"; onClicked: root.chooseNodeSource("public", "picked") }
-                            LogosText { objectName: "publicPickedNote"; visible: root.ndPublicKind === "picked"; Layout.fillWidth: true
-                                        Layout.leftMargin: nodeForm.indent; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
-                                        text: "The wallet's default for this network. On mainnet it moves to another of three operators' "
-                                              + "nodes when the one in use stops answering well." }
+                            RowLayout {
+                                spacing: Theme.spacing.small
+                                LogosRadioButton { objectName: "publicPicked"; checkable: false; checked: root.ndPublicKind === "picked"
+                                                   text: "A node picked for you"; onClicked: root.chooseNodeSource("public", "picked") }
+                                ChoiceInfo { objectName: "publicPickedInfo"; title: "A node picked for you"
+                                             lines: [{ name: "publicPickedNote", text: "The wallet's default for this network. On mainnet it moves to "
+                                                       + "another of three operators' nodes when the one in use stops answering well." }] }
+                            }
                             LogosRadioButton { objectName: "publicChosen"; checkable: false; checked: root.ndPublicKind === "chosen"
                                                text: "A node you choose"; onClicked: root.chooseNodeSource("public", "chosen") }
                             GridLayout {
@@ -1586,7 +1603,7 @@ Item {
                                         mode: modelData
                                         chosen: root.ndPublicKind === "chosen"
                                         checked: root.torUse === modelData
-                                        enabled: root.ready && !root.torUseLocked && !root.torUseSending
+                                        choosable: root.ready && !root.torUseLocked && !root.torUseSending
                                         onPicked: {
                                             if (modelData === root.torUse) return
                                             root.torUseNote = ""
@@ -1608,23 +1625,24 @@ Item {
                         Layout.fillWidth: true; color: Theme.palette.textSecondary; text: root.nodeLine() }
             LogosText { objectName: "nodeSetupNote"; visible: text !== ""; Layout.fillWidth: true; wrapMode: Text.Wrap
                         textFormat: Text.PlainText; color: Theme.palette.error; text: root.nodeSetupNote }
-            RowLayout {
-                LogosButton {
-                    objectName: "saveNodeButton"
-                    text: !root.nodeSetupNeeded ? "Save node" : root.torUseSending ? "Saving…" : "Save"
-                    variant: root.nodeSetupNeeded ? LogosButton.Variant.Primary : LogosButton.Variant.Secondary
-                    enabled: root.nodeDraftReady() && !root.torUseSending
-                    onClicked: {
-                        if (root.nodeSetupNeeded) { root.saveNodeSetup(); return }
-                        backend.saveNodeConfig(JSON.stringify(root.nodeDraft()))
-                        // Do NOT clear the fields here: saveNodeConfig is refused while a wallet is open or
-                        // opening. resetNodeForm() runs when the stored config changes, which only a landed save does.
-                        root.nodeSavePending = true
-                    }
-                }
-                LogosButton { text: "Revert"; enabled: root.ready; onClicked: root.resetNodeForm() }
-            }
         }
+        // Done stores a changed choice, then closes, like the Bitcoin and Zcash sheets. On a
+        // network's first visit, Save stores the checked choice; wallets open after it.
+        rightActions: [ LogosButton {
+            objectName: "saveNodeButton"
+            text: !root.nodeSetupNeeded ? "Done" : root.torUseSending ? "Saving…" : "Save"
+            variant: root.nodeSetupNeeded ? LogosButton.Variant.Primary : LogosButton.Variant.Secondary
+            enabled: !root.torUseSending && (root.nodeSetupNeeded || root.nodeDraftChanged() ? root.nodeDraftReady() : true)
+            onClicked: {
+                if (root.nodeSetupNeeded) { root.saveNodeSetup(); return }
+                if (root.nodeDraftChanged()) {
+                    // A refused save shows on the Wallets screen's error line.
+                    backend.saveNodeConfig(JSON.stringify(root.nodeDraft()))
+                    root.nodeSavePending = true
+                }
+                nodeSheet.close()
+            }
+        } ]
     }
 
 }

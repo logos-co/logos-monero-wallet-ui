@@ -169,9 +169,12 @@ sections:
               property: "text"
               value: "Reached directly. Tor can't reach your network."
               screenshot: "wallet-ui-node.png"
-            - name: "Save node"
-              action: click
-              target: "Save node"
+            - name: "Done stores it and closes Node"
+              action: call_method
+              find_by: "objectName"
+              find_value: "saveNodeButton"
+              method: "clicked"
+              args: []
             - name: "The node module stores it as your own node"
               # `own` round-trips only through a node module that keeps it (CI pins that draft).
               action: expect_property
@@ -180,15 +183,24 @@ sections:
               property: "storedSource"
               value: "own-address"
               timeout: 30000
+            - name: "Open Node again"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "openSheet"
+              args: ["node"]
             - name: "Back to the node picked for you"
               action: call_method
               find_by: "objectName"
               find_value: "moneroWalletRoot"
               method: "chooseNodeSource"
               args: ["public", "picked"]
-            - name: "Save node"
-              action: click
-              target: "Save node"
+            - name: "Done stores it and closes Node"
+              action: call_method
+              find_by: "objectName"
+              find_value: "saveNodeButton"
+              method: "clicked"
+              args: []
             - name: "The picked node saves, with no address of its own"
               # The app sends it without a url; a node module that required one refused the save.
               action: expect_property
@@ -197,6 +209,12 @@ sections:
               property: "storedSource"
               value: "public-picked"
               timeout: 30000
+            - name: "Open Node again"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "openSheet"
+              args: ["node"]
             - name: "Your own node again, for the rest of this run"
               action: call_method
               find_by: "objectName"
@@ -208,9 +226,12 @@ sections:
               find_by: "objectName"
               find_value: "ownAddressField"
               value: "http://127.0.0.1:1"
-            - name: "Save node"
-              action: click
-              target: "Save node"
+            - name: "Done stores it and closes Node"
+              action: call_method
+              find_by: "objectName"
+              find_value: "saveNodeButton"
+              method: "clicked"
+              args: []
             - name: "Stored as your own node again"
               action: expect_property
               find_by: "objectName"

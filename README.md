@@ -66,7 +66,7 @@ by `monero_node_module`, "Use Tor for" included. It is the one place this is set
 shared with the Bitcoin and Zcash wallets. Only what the choice uses is shown under it, and the radios are the state:
 there is no "Use it" or "Connect to".
 
-- **Your own node** (Most private), with one benefits and costs note:
+- **Your own node** (Most private), its benefits and costs behind an "i":
   - **In Logos:** the node `monerod_module` runs (local mode), with its state and **Open Monero
     Node…**. Offered when it can serve the network. The wallet's connection never leaves the
     computer, so there is no Tor here; the node's peer connections are set in the Monero Node app.
@@ -84,13 +84,13 @@ there is no "Use it" or "Connect to".
     that address stays with it; a new address drops it. An address on your own network with no
     address over Tor is saved as your own node.
   - **Use Tor for:** Everything (`all`), Only what identifies you (`identifying`, recommended),
-    Nothing (`none`), each with what happens, pros and cons, worded for the choice above. It is
+    Nothing (`none`), each with what happens, pros and cons behind its "i", worded for the choice above. It is
     kept for the active network and stored at once.
   - **Which Tor**, unless Nothing: the Tor that comes with Logos, with its status from
     `node_health` and **Manage Tor…**, or your own Tor's SOCKS address. Tor routes refuse to
     connect without Tor.
-- **Save node** stores the choice on screen. A hidden field sends what is stored, never its edits,
-  and never blocks Save: In Logos keeps the stored remote half, and an empty own Tor matters only
+- **Done** stores the choice on screen if it changed, then closes Node; a refused save shows on
+  the Wallets screen. A hidden field sends what is stored, never its edits, and never blocks Done: In Logos keeps the stored remote half, and an empty own Tor matters only
   while Which Tor shows. The sheet is read-only, with "Close your open accounts to change this.",
   while a wallet is open, opening or closing. Settings shows the stored choice in the sheet's shape, read-only.
 - **Node first, per network:** while the node says `torUseChosen: false` for the active network, the
