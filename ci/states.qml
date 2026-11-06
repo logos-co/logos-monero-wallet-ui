@@ -96,6 +96,8 @@ Item {
         if (obj.objectName === name) return obj
         var kids = []
         if (obj.data) for (var i = 0; i < obj.data.length; i++) kids.push(obj.data[i])
+        // A dialog's footer buttons live in its action lists.
+        ;[obj.leftActions, obj.rightActions].forEach(function (l) { if (l) for (var a = 0; a < l.length; a++) kids.push(l[a]) })
         if (obj.contentItem && kids.indexOf(obj.contentItem) < 0) kids.push(obj.contentItem)
         if (obj.item && kids.indexOf(obj.item) < 0) kids.push(obj.item)
         for (var k = 0; k < kids.length; k++) {
@@ -115,6 +117,8 @@ Item {
         if (pred(obj) && out.indexOf(obj) < 0) out.push(obj)
         var kids = []
         if (obj.data) for (var i = 0; i < obj.data.length; i++) kids.push(obj.data[i])
+        // A dialog's footer buttons live in its action lists.
+        ;[obj.leftActions, obj.rightActions].forEach(function (l) { if (l) for (var a = 0; a < l.length; a++) kids.push(l[a]) })
         if (obj.contentItem && kids.indexOf(obj.contentItem) < 0) kids.push(obj.contentItem)
         for (var k = 0; k < kids.length; k++) findAll(kids[k], pred, out, (depth || 0) + 1)
         return out
@@ -136,80 +140,115 @@ Item {
             tor({ torUse: "identifying", torUseChosen: false, existing: false })
         },
         function (v) {
-            expect("a fresh install asks first", shown("torUsePage") + " " + shown("walletsPage"), "true false")
-            expect("the question", prop("startIntro", "text").indexOf("Where should this wallet get Monero's chain?"), 0)
-            expect("public sources preselected", prop("startPublic", "checked") + " " + prop("startOwn", "checked"), "true false")
-            expect("...with Use Tor for under it", shown("startPublicOptions") + " " + shown("startOwnNote"), "true false")
-            expect("most private first", inOrder(["startOwn", "startPublic", "torUseStart_all", "torUseStart_identifying", "torUseStart_none"]), "in order")
-            expect("three options", ["identifying", "all", "none"].map(function (m) { return prop("torUseStart_" + m, "text") }),
-                   ["Only what identifies you", "Everything", "Nothing"])
-            expect("...each with what happens, pros and cons", ["identifying", "all", "none"].every(function (m) {
-                return ["happens_", "pros_", "cons_"].every(function (k) { return shown("torUseStart_" + k + m) === true }) }), true)
-            expect("...in the plan's words", prop("torUseStart_cons_identifying", "text").indexOf("You can send only once the wallet has caught up and moved to Tor.") > 0, true)
-            expect("fresh: identifying preselected", checks("torUseStart_"), [true, false, false])
-            expect("...and Recommended", shown("torUseStart_recommended_identifying"), true)
-            expect("...no Current tag", ["all", "none", "identifying"].some(function (m) { return shown("torUseStart_current_" + m) === true }), false)
-            click("torUseContinue")
+            expect("a fresh install: the Wallets screen, with a notice", shown("walletsPage") + " " + shown("nodeSetupNotice"), "true true")
+            expect("...naming the network", prop("nodeSetupNotice", "title"), "Set up Node for stagenet")
+            expect("...no first-run screen", shown("torUsePage"), "<no torUsePage>")
+            expect("the network, picked in the header", prop("networkPicker", "displayText") + " " + prop("networkPicker", "enabled"), "stagenet true")
+            expect("...not on the Wallets screen", shown("networkBox"), "<no networkBox>")
+            expect("create and restore wait for it", ["newWalletButton", "restoreSeedOpen", "restoreKeysOpen"].map(function (n) { return prop(n, "enabled") }),
+                   [false, false, false])
+            click("nodeSetupButton")
         },
         function (v) {
-            expect("Continue stores the preselected mode", fake.last("setTorUse"), ["setTorUse", "identifying"])
-            expect("...and the Wallets screen shows", shown("torUsePage") + " " + shown("walletsPage") + " " + shown("nodeSheet"), "false true false")
+            expect("Open Node opens the sheet", shown("nodeSheet"), true)
+            expect("...saying it isn't saved", shown("nodeSetupSheetNotice") + " " + prop("nodeSetupSheetNotice", "title"), "true Not saved for stagenet yet")
+            expect("...for this network", prop("nodeNetworkLine", "text"), "For stagenet. Each network has its own setting.")
+            expect("...in the shared words", prop("torUseIntro", "text"), v.torUseIntro)
+            expect("public sources picked for you, preselected", prop("sourcePublic", "checked") + " " + prop("publicPicked", "checked"), "true true")
+            expect("three options", ["identifying", "all", "none"].map(function (m) { return prop("torUse_" + m, "text") }),
+                   ["Only what identifies you", "Everything", "Nothing"])
+            expect("...each with what happens, pros and cons", ["identifying", "all", "none"].every(function (m) {
+                return shown("torUse_info_" + m) === true && ["happens_", "pros_", "cons_"].every(function (k) {
+                    return find(view.item, "torUse_" + k + m, 0) !== null && shown("torUse_" + k + m) === false }) }), true)
+            var idInfo = find(view.item, "torUse_info_identifying", 0)
+            idInfo.clicked()
+            expect("its i opens them", [idInfo.opened, idInfo.title, shown("torUse_cons_identifying")], [true, "Only what identifies you", true])
+            idInfo.close()
+            expect("...in the plan's words", prop("torUse_cons_identifying", "text").indexOf("You can send only once the wallet has moved to Tor.") > 0, true)
+            expect("fresh: identifying checked", checks("torUse_"), [true, false, false])
+            expect("...and Recommended", shown("torUse_recommended_identifying"), true)
+            expect("the button saves", prop("saveNodeButton", "text"), "Save")
+            click("saveNodeButton")
+        },
+        function (v) {
+            expect("Save stores the checked mode", fake.last("setTorUse"), ["setTorUse", "identifying"])
+            expect("...then the node on screen", saved(), { mode: "remote", source: "default", proxy: "" })
+            expect("...and closes the sheet; the notice goes", shown("nodeSheet") + " " + shown("nodeSetupNotice"), "false false")
+            expect("create is offered", prop("newWalletButton", "enabled"), true)
             v.torUseAnswered = false
             tor({ torUse: "all", torUseChosen: false, existing: true })
         },
         function (v) {
-            expect("existing: the screen shows once more", shown("torUsePage"), true)
-            expect("...its routing preselected", checks("torUseStart_"), [false, true, false])
-            expect("...tagged Current", shown("torUseStart_current_all"), true)
-            expect("...identifying still Recommended", shown("torUseStart_recommended_identifying"), true)
+            expect("existing: the notice once more", shown("nodeSetupNotice"), true)
+            click("nodeSettingsButton")
+        },
+        function (v) {
+            expect("...its routing checked", checks("torUse_"), [false, true, false])
             fake.torUseReply = "Close your open accounts to change this."
-            click("torUseContinue")
+            click("saveNodeButton")
         },
         function (v) {
-            expect("a refusal shows inline", prop("torUseStartNote", "text"), "Close your open accounts to change this.")
-            expect("...and the screen stays", shown("torUsePage"), true)
+            expect("Save unchanged keeps all-Tor", fake.last("setTorUse"), ["setTorUse", "all"])
+            expect("a refusal shows in the sheet", prop("nodeSetupNote", "text"), "Close your open accounts to change this.")
+            expect("...which stays open", shown("nodeSheet"), true)
             fake.torUseReply = ""
-            click("torUseStart_none")
+            click("torUse_none")
         },
         function (v) {
-            expect("picking moves the choice", checks("torUseStart_"), [false, false, true])
-            expect("...Current stays on the node's", shown("torUseStart_current_all") + " " + shown("torUseStart_current_none"), "true false")
-            click("torUseContinue")
-        },
-        function (v) {
-            expect("...stores the pick", fake.last("setTorUse"), ["setTorUse", "none"])
-            expect("...and clears the refusal", prop("torUseStartNote", "text"), "")
-            expect("chosen: the screen is gone", shown("torUsePage"), false)
+            expect("picking an option saves it", fake.last("setTorUse"), ["setTorUse", "none"])
+            expect("...so the button is Done", [prop("saveNodeButton", "text"), v.nodeSetupNeeded], ["Done", false])
+            v.closeSheets()
             v.torUseAnswered = false
         },
         function (v) {
-            expect("...and never shows again", shown("torUsePage"), false)
+            expect("...and the notice never shows again", shown("nodeSetupNotice"), false)
+            v.torUseAnswered = true
+            fake.networksJson = JSON.stringify({ networks: ["mainnet", "stagenet"], active: "mainnet" })
+            tor({ torUse: "identifying", torUseChosen: false, network: "mainnet" })
+        },
+        function (v) {
+            expect("another network asks for itself", shown("nodeSetupNotice") + " " + prop("nodeSetupNotice", "title"), "true Set up Node for mainnet")
+            expect("...the header shows it", prop("networkPicker", "displayText"), "mainnet")
+            fake.networksJson = JSON.stringify({ networks: ["mainnet", "stagenet"], active: "stagenet" })
+            tor({ torUse: "none", torUseChosen: true, network: "stagenet" })
+        },
+        function (v) {
+            expect("back on stagenet: chosen there", shown("nodeSetupNotice") + " " + prop("networkPicker", "displayText"), "false stagenet")
             fake.torUseJson = ""
         },
         function (v) {
-            expect("an older backend: no screen", shown("torUsePage") + " " + shown("walletsPage"), "false true")
+            expect("an older backend: no notice", shown("nodeSetupNotice") + " " + shown("walletsPage"), "false true")
+            expect("no wallet open: said once, under the title", [shown("syncChip"), prop("statusLine", "text")], [false, "No wallet open"])
             expect("...and no choice in the node sheet", v.torUse, "")
             tor({ torUse: "identifying", torUseChosen: false })
             fake.statusJson = JSON.stringify({ state: "opening" })
         },
         function (v) {
-            expect("opening: no screen", shown("torUsePage"), false)
+            expect("opening: no notice", v.nodeSetupNeeded, false)
             fake.statusJson = JSON.stringify({ state: "no_wallet" })
             tor({ torUse: "identifying", torUseChosen: false, existing: false })
-            click("torUseStart_none")
-            click("startOwn")
         },
         function (v) {
-            expect("first run, your own node: its one note", shown("startOwnNote") && prop("startOwnNote", "text").indexOf("<b>Costs:</b>") > 0, true)
-            expect("...what Continue does", shown("startOwnNext"), true)
-            expect("...and no Use Tor for", shown("startPublicOptions"), false)
-            click("torUseContinue")
+            click("nodeSetupButton")
         },
         function (v) {
-            expect("your own node still stores the recommended mode", fake.last("setTorUse"), ["setTorUse", "identifying"])
-            expect("...and the node sheet opens on it", shown("nodeSheet") + " " + prop("sourceOwn", "checked") + " " + shown("ownNodeOption"), "true true true")
+            click("sourceOwn")
+        },
+        function (v) {
+            expect("your own node: its one note, behind its i", shown("ownNodeInfo") && !shown("ownNodeNote")
+                   && prop("ownNodeNote", "text").indexOf("<b>Costs:</b>") > 0, true)
             expect("...with no node in Logos, at an address", prop("ownInLogos", "enabled") + " " + prop("ownAtAddress", "checked"), "false true")
             expect("...public sources folded away", shown("publicSourcesOption") + " " + shown("torUseSettings"), "false false")
+            expect("...Save waits for an address", prop("saveNodeButton", "enabled"), false)
+            find(view.item, "ownAddressField", 0).text = "http://192.168.1.20:18081"
+        },
+        function (v) {
+            click("saveNodeButton")
+        },
+        function (v) {
+            expect("your own node still stores the checked mode", fake.last("setTorUse"), ["setTorUse", "identifying"])
+            expect("...and the node at that address", saved().own + " " + saved().url, "true http://192.168.1.20:18081")
+            expect("...then the sheet closes", shown("nodeSheet"), false)
             v.closeSheets()
             tor({ torUse: "identifying", torUseChosen: true })
             fake.nodeConfigJson = JSON.stringify({ url: "https://node2.monerodevs.org:38089", onionUrl: "http://plowsof.onion:38089",
@@ -222,10 +261,11 @@ Item {
             expect("...your own node folded", shown("ownNodeOption") + " " + shown("publicChosenPane"), "false false")
             expect("...Use Tor for under it", shown("torUseSettings") + " " + JSON.stringify(checks("torUse_")), "true [true,false,false]")
             expect("...enabled with no account open", ["identifying", "all", "none"].map(function (m) { return prop("torUse_" + m, "enabled") }), [true, true, true])
-            expect("...for every public network", prop("torUseScope", "text"), "Applies to every network that uses public sources.")
+            expect("...for this network", prop("nodeNetworkLine", "text"), "For stagenet. Each network has its own setting.")
+            expect("...and what every mode shares", shown("torUseEveryMode"), true)
             expect("...no lock line", shown("torUseLocked"), false)
             expect("the sheet reads top to bottom", inOrder(["sourceOwn", "sourcePublic", "publicPicked", "publicChosen", "torUse_all",
-                                                              "torUse_identifying", "torUse_none", "publicBuiltInTor", "saveNodeButton"]), "in order")
+                                                              "torUse_identifying", "torUse_none", "publicBuiltInTor"]), "in order")
             expect("Which Tor under Use Tor for, with the Tor chip", shown("publicBuiltInTor") + " " + prop("publicBuiltInTor", "checked")
                    + " " + prop("publicTorChip", "text") + " " + shown("publicManageTor"), "true true Connecting to Tor… 40% true")
             var notes = findAll(find(view.item, "nodeSheet", 0), function (o) { return typeof o.text === "string" && o.text.indexOf("Benefits:") >= 0 })
@@ -235,10 +275,15 @@ Item {
             expect("Manage Tor raises tor.manage", asked ? asked.intent : "<none>", "tor.manage")
             logos.lastCallback({ ok: false, error: "unavailable" })
             expect("...and says when the app is missing", prop("publicTorNote", "text"), "The Tor app is not installed.")
+            expect("picked for you, it stores the module's own node", v.nodeDraft(), { mode: "remote", source: "default", proxy: "" })
+            expect("...the button is Done", prop("saveNodeButton", "text") + " " + prop("saveNodeButton", "enabled"), "Done true")
             click("saveNodeButton")
         },
         function (v) {
-            expect("Save, picked for you: the module's own node", saved(), { mode: "remote", source: "default", proxy: "" })
+            expect("Done, nothing changed: no save, and the sheet closes", [saved().url, shown("nodeSheet")], ["http://192.168.1.20:18081", false])
+            v.openSheet("node")
+        },
+        function (v) {
             click("torUse_none")
         },
         function (v) {
@@ -286,9 +331,8 @@ Item {
         },
         function (v) {
             expect("off: no Which Tor", prop("ownTorSwitch", "checked") + " " + shown("ownBuiltInTor"), "false false")
-            click("saveNodeButton")
-            var c = saved()
-            expect("Save, your node direct", [c.mode, c.own, c.url, c.reachThroughTor, c.onionUrl, c.proxy, c.trusted, "password" in c],
+            var c = v.nodeDraft()
+            expect("Done stores your node direct", [c.mode, c.own, c.url, c.reachThroughTor, c.onionUrl, c.proxy, c.trusted, "password" in c],
                    ["remote", true, "https://my.node.example:18081", false, "", "", false, false])
             click("ownTorSwitch")
             click("ownOwnTor")
@@ -298,9 +342,8 @@ Item {
             setText("ownProxyField", "socks5://127.0.0.1:9050")
         },
         function (v) {
-            click("saveNodeButton")
-            var c = saved()
-            expect("Save, your node over your own Tor", [c.reachThroughTor, c.proxy], [true, "socks5://127.0.0.1:9050"])
+            var c = v.nodeDraft()
+            expect("...or over your own Tor", [c.reachThroughTor, c.proxy], [true, "socks5://127.0.0.1:9050"])
             fake.localNodeJson = JSON.stringify({ available: true, rpcUrl: "http://127.0.0.1:38081", status: { state: "running" } })
         },
         function (v) {
@@ -318,8 +361,10 @@ Item {
             expect("Save, In Logos: the stored remote half, not the hidden edits",
                    [c.mode, c.url, c.onionUrl, c.source, c.proxy, c.own, "password" in c],
                    ["local", "https://node2.monerodevs.org:38089", "http://plowsof.onion:38089", "default", "", false, false])
+            expect("...then the sheet closes", shown("nodeSheet"), false)
             fake.nodeConfigJson = JSON.stringify({ url: "https://my.node.example:18081", own: true, reachThroughTor: false, mode: "remote",
                                                    source: "external", network: "stagenet", username: "u", hasPassword: true })
+            v.openSheet("node")
         },
         function (v) {
             expect("a stored own node opens as stored", [prop("sourceOwn", "checked"), prop("ownAtAddress", "checked"), prop("ownAddressField", "text"),
@@ -339,22 +384,25 @@ Item {
                    ["remote", "https://node.example:18089", "http://x.onion:18089", "", "", undefined, undefined])
             fake.nodeConfigJson = JSON.stringify({ url: "https://chosen.example:18089", username: "u", hasPassword: true, mode: "remote",
                                                    source: "external", network: "stagenet" })
+            v.openSheet("node")
         },
         function (v) {
             expect("a stored chosen node opens as stored", prop("publicChosen", "checked") + " " + prop("nodeHostField", "text"), "true https://chosen.example:18089")
-            click("saveNodeButton")
-            var c = saved()
+            var c = v.nodeDraft()
             expect("...its login stays with its address", [c.username, "password" in c], ["u", false])
             setText("nodeHostField", "http://10.0.0.2:18089")
         },
         function (v) {
             expect("a chosen address on your network says what it becomes", shown("chosenLanNote"), true)
-            click("saveNodeButton")
-            expect("...and a new address drops the login", [saved().username, saved().password], ["", ""])
-            find(view.item, "torUseExplain", 0).activated("")
+            expect("...and a new address drops the login", [v.nodeDraft().username, v.nodeDraft().password], ["", ""])
+            setText("nodeOnionField", "http://x.onion:18089")
         },
         function (v) {
-            expect("What this means, for a node you choose", shown("torUse_happens_all") && prop("torUse_happens_all", "text").indexOf("your address over Tor") > 0, true)
+            expect("...but not with an address over Tor", shown("chosenLanNote"), false)
+            setText("nodeOnionField", "")
+        },
+        function (v) {
+            expect("What this means, for a node you choose", shown("torUse_info_all") && prop("torUse_happens_all", "text").indexOf("your address over Tor") > 0, true)
             click("torUse_all")
         },
         function (v) {
@@ -392,7 +440,7 @@ Item {
             find(view.item, "sendAmountField", 0).text = "1"
         },
         function (v) {
-            expect("catching up says so", prop("torRouteLine", "text"), "Catching up directly. Sends wait until the wallet has caught up and moved to Tor.")
+            expect("catching up says so", prop("torRouteLine", "text"), "Catching up directly. Sends wait until the wallet has moved to Tor.")
             expect("...sends wait", shown("sendWaitNote") + " " + prop("reviewButton", "enabled"), "true false")
             fake.statusJson = JSON.stringify({ state: "ready", wallet: "w", network: "stagenet", route: "waiting_for_tor", onTor: false,
                                                waitingForTor: true, torUse: "identifying", connected: false })
@@ -418,7 +466,7 @@ Item {
             expect("...and Use Tor for", shown("settingsTorUsePane") + " " + prop("settingsTorUse_identifying", "checked"), "true true")
             expect("...and Which Tor", shown("settingsBuiltInTor") + " " + prop("settingsBuiltInTor", "checked"), "true true")
             expect("...and where to change them", prop("settingsNodeLocked", "message").indexOf("These settings apply when a wallet opens") === 0, true)
-            expect("an open wallet: no first-run screen", shown("torUsePage"), false)
+            expect("an open wallet: no notice", v.nodeSetupNeeded, false)
             fake.nodeConfigJson = JSON.stringify({ url: "http://192.168.1.4:18081", own: true, mode: "remote", source: "external", network: "stagenet" })
         },
         function (v) {
@@ -432,6 +480,22 @@ Item {
             expect("your own node on the internet: its Tor switch and Which Tor", [shown("settingsOwnTorSwitch"), prop("settingsOwnTorSwitch", "checked"),
                    shown("settingsOwnBuiltInTor"), prop("settingsOwnBuiltInTor", "checked"), prop("settingsOwnBuiltInTor", "enabled")].join(" "),
                    "true true true true false")
+        },
+        function (v) {
+            // A short window: the Node sheet scrolls, and its bar must leave the form's right edge clear.
+            fake.statusJson = JSON.stringify({ state: "no_wallet" })
+            scene.height = 560
+        },
+        function (v) {
+            v.openSheet("node")
+        },
+        function (v) {
+            var sv = find(view.item, "nodeScroll", 0), form = find(view.item, "walletsNodePage", 0)
+            expect("a short window: the Node sheet scrolls", sv ? sv.effectiveScrollBarWidth > 0 : "<no nodeScroll>", true)
+            expect("...and its bar leaves the form clear",
+                   sv && form ? Math.round(form.mapToItem(sv, form.width, 0).x) <= sv.width - sv.effectiveScrollBarWidth : "<none>", true)
+            v.closeSheets()
+            scene.height = 900
         }
     ]
     property int step: 0

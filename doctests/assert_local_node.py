@@ -127,6 +127,9 @@ def present():
     print("4) save local mode")
     method("saveNodeButton", "clicked")
     wait(lambda: ev("nodeCfg.mode") == "local", "stored mode local", 30)
+    check("Done closed the sheet", props("nodeSheet").get("visible") is False, props("nodeSheet").get("visible"))
+    method("moneroWalletRoot", "openSheet", ["node"])
+    wait(lambda: props("nodeSheet").get("visible") is True, "sheet visible again", 20)
     check("the remote url is kept on the record", ev("nodeCfg.url") == stored_url, ev("nodeCfg.url"))
     wait(lambda: ev("node.mode") == "local" and ev("node.reachable") is True, "local node reachable", 60)
     line = props("nodeSheetStatus").get("text") or ""
@@ -175,7 +178,6 @@ def present():
     wait(lambda: ev("nodeCfg.mode") == "remote", "stored mode remote", 30)
     check("stored url unchanged", ev("nodeCfg.url") == stored_url, ev("nodeCfg.url"))
     wait(lambda: ev("node.mode") == "remote", "health remote", 30)
-    method("nodeSheet", "close")
     print(f"    stop -> {str(daemon('stop'))[:120]}")
 
 
