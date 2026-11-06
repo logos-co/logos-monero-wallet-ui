@@ -480,6 +480,22 @@ Item {
             expect("your own node on the internet: its Tor switch and Which Tor", [shown("settingsOwnTorSwitch"), prop("settingsOwnTorSwitch", "checked"),
                    shown("settingsOwnBuiltInTor"), prop("settingsOwnBuiltInTor", "checked"), prop("settingsOwnBuiltInTor", "enabled")].join(" "),
                    "true true true true false")
+        },
+        function (v) {
+            // A short window: the Node sheet scrolls, and its bar must leave the form's right edge clear.
+            fake.statusJson = JSON.stringify({ state: "no_wallet" })
+            scene.height = 560
+        },
+        function (v) {
+            v.openSheet("node")
+        },
+        function (v) {
+            var sv = find(view.item, "nodeScroll", 0), form = find(view.item, "walletsNodePage", 0)
+            expect("a short window: the Node sheet scrolls", sv ? sv.effectiveScrollBarWidth > 0 : "<no nodeScroll>", true)
+            expect("...and its bar leaves the form clear",
+                   sv && form ? Math.round(form.mapToItem(sv, form.width, 0).x) <= sv.width - sv.effectiveScrollBarWidth : "<none>", true)
+            v.closeSheets()
+            scene.height = 900
         }
     ]
     property int step: 0

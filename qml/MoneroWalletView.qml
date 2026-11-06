@@ -1412,17 +1412,19 @@ Item {
             spacing: Theme.spacing.small
             ScrollView {
                 id: nodeScroll
+                objectName: "nodeScroll"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.preferredHeight: nodeForm.implicitHeight
                 clip: true
                 contentWidth: availableWidth
                 ColumnLayout {
+                    // Less the bar: it is drawn over the content and would take clicks meant for the right edge.
                     id: nodeForm
                     // Named so a test can assert REACHABILITY: findByProperty ignores visibility, so the
                     // fields alone would pass even with this sheet hidden behind an open wallet.
                     objectName: "walletsNodePage"
-                    width: nodeScroll.availableWidth
+                    width: nodeScroll.availableWidth - nodeScroll.effectiveScrollBarWidth
                     spacing: Theme.spacing.small
                     readonly property int indent: Theme.spacing.xlarge + Theme.spacing.small
 
