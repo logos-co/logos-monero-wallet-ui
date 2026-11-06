@@ -62,7 +62,7 @@ the open wallet's network.
 ## Where the chain comes from
 
 The node sheet (Node, on the Wallets screen) is one decision, read top to bottom, kept per network
-by `monero_node_module`, "Use Tor for" included. It has the first-run screen's sections and words,
+by `monero_node_module`, "Use Tor for" included. It is the one place this is set, in words
 shared with the Bitcoin and Zcash wallets. Only what the choice uses is shown under it, and the radios are the state:
 there is no "Use it" or "Connect to".
 
@@ -93,13 +93,13 @@ there is no "Use it" or "Connect to".
   and never blocks Save: In Logos keeps the stored remote half, and an empty own Tor matters only
   while Which Tor shows. The sheet is read-only, with "Close your open accounts to change this.",
   while a wallet is open, opening or closing. Settings shows the stored choice in the sheet's shape, read-only.
-- **First run, per network:** while the node says `torUseChosen: false` for the active network, the
-  same top choice replaces the Wallets screen, with Public sources preselected and Use Tor for under
-  it. It shows the first time each network is used and names that network. A fresh install
-  preselects Only what identifies you; an install from before the setting preselects its current
-  routing, tagged Current. Your own node stores the recommended mode too (or an existing install's
-  routing), so a later switch to public sources has one, then opens the node sheet on your own
-  node. A backend without `tor_use` shows no screen.
+- **Node first, per network:** while the node says `torUseChosen: false` for the active network, the
+  Wallets screen shows "Set up Node for stagenet" with **Open Node**, and Create, Restore and Open
+  wait: the first time each network is used. Node then says the choice isn't saved yet and its
+  button reads **Save**: it stores the checked Use Tor for, the node's current `torUse` (a fresh
+  install's Only what identifies you, or an existing install's routing, so a first save never
+  weakens it), then the node on screen, and closes. Picking another mode saves it at once. A
+  refusal shows in the sheet, which stays open. A backend without `tor_use` never asks.
 - **An open wallet** shows its route: catching up directly, waiting for Tor, or over Tor. While it
   catches up or waits, Send says "You can send once the wallet has moved to Tor." and
   Review is off; the backend refuses `prepare_send` with `waiting_for_tor` either way.
