@@ -30,6 +30,17 @@
     {
       "intent": "monero.accounts.manage",
       "handoff": true
+    },
+    {
+      "intent": "monero.wallet.review_send",
+      "params": [
+        {
+          "name": "requestId",
+          "type": "string",
+          "required": true,
+          "description": "A send the requester prepared with monero_wallet_backend.prepare_send; the person reviews its preview here and decides. Answers {requestId, txids} once broadcast."
+        }
+      ]
     }
   ],
   "uses": [
