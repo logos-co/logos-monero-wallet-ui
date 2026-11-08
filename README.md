@@ -53,17 +53,20 @@ the Tor that comes with Logos, hands off to the Tor app.
 
 ## Networks
 
-The Wallets screen lists wallets for the selected network. Select Stagenet to open a Stagenet wallet;
-opening it by name while Mainnet is selected is refused. Unverified wallet files remain visible until
-the engine checks their network when opened. The badge and Settings show the open wallet's network.
+The network picker in the header selects the network; it is enabled only while no wallet is open,
+opening or closing. The Wallets screen lists wallets for the selected network. Select Stagenet to
+open a Stagenet wallet; opening it by name while Mainnet is selected is refused. Unverified wallet
+files remain visible until the engine checks their network when opened. The picker and Settings show
+the open wallet's network.
 
 ## Where the chain comes from
 
 The node sheet (Node, on the Wallets screen) is one decision, read top to bottom, kept per network
-by `monero_node_module`. Only what the choice uses is shown under it, and the radios are the state:
+by `monero_node_module`, "Use Tor for" included. It is the one place this is set, in words
+shared with the Bitcoin and Zcash wallets. Only what the choice uses is shown under it, and the radios are the state:
 there is no "Use it" or "Connect to".
 
-- **Your own node** (Most private), with one benefits and costs note:
+- **Your own node** (Most private), its benefits and costs behind an "i":
   - **In Logos:** the node `monerod_module` runs (local mode), with its state and **Open Monero
     Node…**. Offered when it can serve the network. The wallet's connection never leaves the
     computer, so there is no Tor here; the node's peer connections are set in the Monero Node app.
@@ -78,26 +81,27 @@ there is no "Use it" or "Connect to".
   - **A node picked for you:** the node module's seeded node, moved by health on mainnet. Saved as
     `source: "default"`, so the node module, not this form, supplies the address.
   - **A node you choose:** a direct address and an optional address over Tor. A login stored for
-    that address stays with it; a new address drops it. An address on your own network is saved as
-    your own node.
+    that address stays with it; a new address drops it. An address on your own network with no
+    address over Tor is saved as your own node.
   - **Use Tor for:** Everything (`all`), Only what identifies you (`identifying`, recommended),
-    Nothing (`none`), with what happens, pros and cons behind **What this means**, worded for the
-    choice above. It applies to every network that uses public sources, and is stored at once.
+    Nothing (`none`), each with what happens, pros and cons behind its "i", worded for the choice above. It is
+    kept for the active network and stored at once.
   - **Which Tor**, unless Nothing: the Tor that comes with Logos, with its status from
     `node_health` and **Manage Tor…**, or your own Tor's SOCKS address. Tor routes refuse to
     connect without Tor.
-- **Save node** stores the choice on screen. A hidden field sends what is stored, never its edits,
-  and never blocks Save: In Logos keeps the stored remote half, and an empty own Tor matters only
+- **Done** stores the choice on screen if it changed, then closes Node; a refused save shows on
+  the Wallets screen. A hidden field sends what is stored, never its edits, and never blocks Done: In Logos keeps the stored remote half, and an empty own Tor matters only
   while Which Tor shows. The sheet is read-only, with "Close your open accounts to change this.",
   while a wallet is open, opening or closing. Settings shows the stored choice in the sheet's shape, read-only.
-- **First run:** while the node says `torUseChosen: false`, the same top choice replaces the
-  Wallets screen once, with Public sources preselected and Use Tor for under it. A fresh install
-  preselects Only what identifies you; an install from before the setting preselects its current
-  routing, tagged Current. Your own node stores the recommended mode too (or an existing install's
-  routing), so a later switch to public sources has one, then opens the node sheet on your own
-  node. A backend without `tor_use` shows no screen.
+- **Node first, per network:** while the node says `torUseChosen: false` for the active network, the
+  Wallets screen shows "Set up Node for stagenet" with **Open Node**, and Create, Restore and Open
+  wait: the first time each network is used. Node then says the choice isn't saved yet and its
+  button reads **Save**: it stores the checked Use Tor for, the node's current `torUse` (a fresh
+  install's Only what identifies you, or an existing install's routing, so a first save never
+  weakens it), then the node on screen, and closes. Picking another mode saves it at once. A
+  refusal shows in the sheet, which stays open. A backend without `tor_use` never asks.
 - **An open wallet** shows its route: catching up directly, waiting for Tor, or over Tor. While it
-  catches up or waits, Send says "You can send once the wallet has caught up and moved to Tor." and
+  catches up or waits, Send says "You can send once the wallet has moved to Tor." and
   Review is off; the backend refuses `prepare_send` with `waiting_for_tor` either way.
 
 `ci/states.qml` drives these states against a fake backend (CI Gate C), with the Qt that

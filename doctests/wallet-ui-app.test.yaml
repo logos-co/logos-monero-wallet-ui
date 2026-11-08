@@ -23,35 +23,33 @@ intro: |
 sections:
   - title: "Build the app, the host and the module tree"
     steps:
-      - title: "Build every module the app loads, and stage them into one tree"
+      # Basecamp's standalone mode, the app's real host: its design system is the one users get.
+      - title: "Build Basecamp's standalone host and every module the app loads"
         run: |
           set -eu
-          nix build 'github:logos-co/logos-standalone-app' --no-write-lock-file -o result-app
+          nix build 'github:logos-co/logos-basecamp#app-standalone' --no-write-lock-file -o result-basecamp
           nix build 'github:logos-co/logos-qt-mcp' --no-write-lock-file -o result-mcp
-          nix build 'github:logos-co/logos-capability-module#install' --no-write-lock-file -o result-capability
           nix build 'github:logos-co/logos-monero-node-module{release}#install' --no-write-lock-file -o result-node
           nix build 'github:logos-co/logos-monero-wallet-core-module{release}#install' --no-write-lock-file -o result-core
           nix build 'github:logos-co/logos-monero-wallet-backend{release}#install' --no-write-lock-file -o result-backend
           nix build 'github:logos-co/logos-monero-wallet-ui{release}#install' --no-write-lock-file -o result-wallet
           # The node module depends on tor_module; this run never starts it (Nothing, below).
           nix build 'github:logos-co/logos-tor-module#install' --no-write-lock-file -o result-tor
-          mkdir -p tree/modules tree/plugins
-          cp -rL result-capability/modules/* result-node/modules/* result-tor/modules/* \
+          mkdir -p tree/modules
+          cp -rL result-node/modules/* result-tor/modules/* \
                  result-core/modules/* result-backend/modules/* tree/modules/
-          cp -rL result-wallet/plugins/* tree/plugins/
           chmod -R u+w tree
-          ls tree/modules tree/plugins
+          ls tree/modules result-wallet/plugins
         code_block: |
-          nix build 'github:logos-co/logos-standalone-app' -o result-app
+          nix build 'github:logos-co/logos-basecamp#app-standalone' -o result-basecamp
           nix build 'github:logos-co/logos-qt-mcp' -o result-mcp
-          nix build 'github:logos-co/logos-capability-module#install' -o result-capability
           nix build 'github:logos-co/logos-tor-module#install' -o result-tor
-          for m in node-module wallet-core-module wallet-backend wallet-ui; do
+          for m in node-module wallet-core-module wallet-backend; do
             nix build "github:logos-co/logos-monero-$m#install" -o "result-$m"
           done
-          mkdir -p tree/modules tree/plugins
+          nix build 'github:logos-co/logos-monero-wallet-ui#install' -o result-wallet
+          mkdir -p tree/modules
           cp -rL result-*/modules/* tree/modules/
-          cp -rL result-wallet-ui/plugins/* tree/plugins/
           chmod -R u+w tree
         expect_contains: ["monero_wallet_ui", "monero_wallet_backend", "monero_wallet_core_module"]
 
@@ -59,38 +57,57 @@ sections:
     steps:
       - title: "Create a wallet, watch it open and sync, then read the receive address"
         ui_test:
-          launch: "env QT_FORCE_STDERR_LOGGING=1 QML_INSPECTOR_PORT=3768 ./result-app/bin/logos-standalone-app -p ./tree/plugins/monero_wallet_ui -m ./tree/modules --load monero_wallet_backend -u ./userdir"
+          # LOGOS_NO_SCHEME_REGISTER: a test run leaves the machine's logos:// handler alone.
+          launch: "env QT_FORCE_STDERR_LOGGING=1 QML_INSPECTOR_PORT=3768 LOGOS_NO_SCHEME_REGISTER=1 ./result-basecamp/bin/LogosBasecamp --module ./result-wallet --modules-dir ./tree/modules --user-dir ./userdir"
           qt_mcp: "result-mcp"
           launch_timeout: 600
           tests:
-            - name: "A fresh install asks where the wallet gets Monero's chain, before any wallet"
+            - name: "A fresh install leads to Node before any wallet"
               # With `timeout`, expect_property polls; a text wait would match hidden items.
               action: expect_property
               find_by: "objectName"
-              find_value: "torUsePage"
+              find_value: "nodeSetupNotice"
               property: "visible"
               value: true
               timeout: 30000
-              screenshot: "wallet-ui-tor-use.png"
-            - name: "Public sources, with Use Tor for Nothing, so this run never starts Tor"
-              # Through the root, as the options can sit below the fold of a scrolled page.
+              screenshot: "wallet-ui-node-setup.png"
+            - name: "Open Node from the notice"
               action: call_method
               find_by: "objectName"
-              find_value: "moneroWalletRoot"
-              method: "chooseTorUse"
-              args: ["none"]
-            - name: "Continue"
-              action: call_method
-              find_by: "objectName"
-              find_value: "moneroWalletRoot"
-              method: "continueTorUse"
+              find_value: "nodeSetupButton"
+              method: "clicked"
               args: []
-            - name: "The choice is asked once: the Wallets screen takes its place"
+            - name: "Node opens, not saved yet"
               action: expect_property
               find_by: "objectName"
-              find_value: "walletsPage"
+              find_value: "saveNodeButton"
+              property: "text"
+              value: "Save"
+              timeout: 15000
+              screenshot: "wallet-ui-node-first-save.png"
+            - name: "Public sources, with Use Tor for Nothing, so this run never starts Tor: picking saves it"
+              action: call_method
+              find_by: "objectName"
+              find_value: "torUse_none"
+              method: "clicked"
+              args: []
+            - name: "The node has it chosen"
+              action: expect_property
+              find_value: "moneroWalletRoot"
+              property: "torUseUnchosen"
+              value: false
+              timeout: 30000
+            - name: "Close Node"
+              action: call_method
+              find_value: "moneroWalletRoot"
+              method: "closeSheets"
+              args: []
+            - name: "The notice is gone from the Wallets screen"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "nodeSetupNotice"
               property: "visible"
-              value: true
+              value: false
               timeout: 30000
             - name: "With nothing open the app shows the Wallets screen"
               action: wait_for
@@ -151,9 +168,12 @@ sections:
               property: "text"
               value: "Reached directly. Tor can't reach your network."
               screenshot: "wallet-ui-node.png"
-            - name: "Save node"
-              action: click
-              target: "Save node"
+            - name: "Done stores it and closes Node"
+              action: call_method
+              find_by: "objectName"
+              find_value: "saveNodeButton"
+              method: "clicked"
+              args: []
             - name: "The node module stores it as your own node"
               # `own` round-trips only through a node module that keeps it (CI pins that draft).
               action: expect_property
@@ -162,15 +182,24 @@ sections:
               property: "storedSource"
               value: "own-address"
               timeout: 30000
+            - name: "Open Node again"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "openSheet"
+              args: ["node"]
             - name: "Back to the node picked for you"
               action: call_method
               find_by: "objectName"
               find_value: "moneroWalletRoot"
               method: "chooseNodeSource"
               args: ["public", "picked"]
-            - name: "Save node"
-              action: click
-              target: "Save node"
+            - name: "Done stores it and closes Node"
+              action: call_method
+              find_by: "objectName"
+              find_value: "saveNodeButton"
+              method: "clicked"
+              args: []
             - name: "The picked node saves, with no address of its own"
               # The app sends it without a url; a node module that required one refused the save.
               action: expect_property
@@ -179,6 +208,12 @@ sections:
               property: "storedSource"
               value: "public-picked"
               timeout: 30000
+            - name: "Open Node again"
+              action: call_method
+              find_by: "objectName"
+              find_value: "moneroWalletRoot"
+              method: "openSheet"
+              args: ["node"]
             - name: "Your own node again, for the rest of this run"
               action: call_method
               find_by: "objectName"
@@ -190,9 +225,12 @@ sections:
               find_by: "objectName"
               find_value: "ownAddressField"
               value: "http://127.0.0.1:1"
-            - name: "Save node"
-              action: click
-              target: "Save node"
+            - name: "Done stores it and closes Node"
+              action: call_method
+              find_by: "objectName"
+              find_value: "saveNodeButton"
+              method: "clicked"
+              args: []
             - name: "Stored as your own node again"
               action: expect_property
               find_by: "objectName"
@@ -294,25 +332,71 @@ sections:
             - name: "Allow the completed close job to reach the UI poller"
               action: sleep
               ms: 1500
-            - name: "The network picker is ready after closing"
+            - name: "The network picker in the header is enabled after closing"
               action: expect_property
-              find_value: "networkBox"
+              find_value: "networkPicker"
               property: "enabled"
               value: true
+              timeout: 15000
             - name: "Select Mainnet"
               action: call_method
               find_value: "moneroWalletRoot"
               method: "selectNetwork"
               args: ["mainnet"]
+            - name: "The header shows Mainnet"
+              action: expect_property
+              find_value: "networkPicker"
+              property: "displayText"
+              value: "mainnet"
+              timeout: 15000
+            - name: "The Use Tor for shown is Mainnet's"
+              # Read after the network list; an older backend names no network, and the view falls back to the active one.
+              action: expect_property
+              find_value: "moneroWalletRoot"
+              property: "torUseNetwork"
+              value: "mainnet"
+              timeout: 15000
+            - name: "Each network has its own setting: open Node on Mainnet"
+              action: call_method
+              find_by: "objectName"
+              find_value: "nodeSettingsButton"
+              method: "clicked"
+              args: []
+            - name: "Nothing again on Mainnet"
+              # A node module that keeps one setting for every network has it already; the pick is then a no-op.
+              action: call_method
+              find_by: "objectName"
+              find_value: "torUse_none"
+              method: "clicked"
+              args: []
+            - name: "Mainnet has it chosen, so no notice"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "nodeSetupNotice"
+              property: "visible"
+              value: false
+              timeout: 30000
+            - name: "Close Node on Mainnet"
+              action: call_method
+              find_value: "moneroWalletRoot"
+              method: "closeSheets"
+              args: []
+            - name: "The Wallets screen shows for Mainnet"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "walletsPage"
+              property: "visible"
+              value: true
+              timeout: 30000
             - name: "Mainnet has no Stagenet wallet to open"
               action: wait_for
               texts: ["No wallets on mainnet yet"]
               timeout: 15000
-            - name: "The network badge is Mainnet with no wallet open"
+            - name: "The header still shows Mainnet with no wallet open"
               action: expect_property
-              find_value: "networkChip"
-              property: "text"
-              value: "MAINNET"
+              find_value: "networkPicker"
+              property: "displayText"
+              value: "mainnet"
             - name: "Mainnet does not list the Stagenet wallet"
               action: expect_property
               find_value: "walletsEmpty"
@@ -376,9 +460,9 @@ sections:
               action: wait_for
               texts: ["Wallet: doctest"]
               timeout: 30000
-            - name: "The open wallet badge reports its actual Stagenet network"
+            - name: "The header reports the open wallet's actual Stagenet network"
               action: expect_property
-              find_value: "networkChip"
-              property: "text"
-              value: "STAGENET"
+              find_value: "networkPicker"
+              property: "displayText"
+              value: "stagenet"
               screenshot: "wallet-ui-network-isolation.png"
