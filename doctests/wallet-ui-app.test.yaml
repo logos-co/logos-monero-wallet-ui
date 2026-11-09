@@ -23,35 +23,33 @@ intro: |
 sections:
   - title: "Build the app, the host and the module tree"
     steps:
-      - title: "Build every module the app loads, and stage them into one tree"
+      # Basecamp's standalone mode, the app's real host: its design system is the one users get.
+      - title: "Build Basecamp's standalone host and every module the app loads"
         run: |
           set -eu
-          nix build 'github:logos-co/logos-standalone-app' --no-write-lock-file -o result-app
+          nix build 'github:logos-co/logos-basecamp#app-standalone' --no-write-lock-file -o result-basecamp
           nix build 'github:logos-co/logos-qt-mcp' --no-write-lock-file -o result-mcp
-          nix build 'github:logos-co/logos-capability-module#install' --no-write-lock-file -o result-capability
           nix build 'github:logos-co/logos-monero-node-module{release}#install' --no-write-lock-file -o result-node
           nix build 'github:logos-co/logos-monero-wallet-core-module{release}#install' --no-write-lock-file -o result-core
           nix build 'github:logos-co/logos-monero-wallet-backend{release}#install' --no-write-lock-file -o result-backend
           nix build 'github:logos-co/logos-monero-wallet-ui{release}#install' --no-write-lock-file -o result-wallet
           # The node module depends on tor_module; this run never starts it (Nothing, below).
           nix build 'github:logos-co/logos-tor-module#install' --no-write-lock-file -o result-tor
-          mkdir -p tree/modules tree/plugins
-          cp -rL result-capability/modules/* result-node/modules/* result-tor/modules/* \
+          mkdir -p tree/modules
+          cp -rL result-node/modules/* result-tor/modules/* \
                  result-core/modules/* result-backend/modules/* tree/modules/
-          cp -rL result-wallet/plugins/* tree/plugins/
           chmod -R u+w tree
-          ls tree/modules tree/plugins
+          ls tree/modules result-wallet/plugins
         code_block: |
-          nix build 'github:logos-co/logos-standalone-app' -o result-app
+          nix build 'github:logos-co/logos-basecamp#app-standalone' -o result-basecamp
           nix build 'github:logos-co/logos-qt-mcp' -o result-mcp
-          nix build 'github:logos-co/logos-capability-module#install' -o result-capability
           nix build 'github:logos-co/logos-tor-module#install' -o result-tor
-          for m in node-module wallet-core-module wallet-backend wallet-ui; do
+          for m in node-module wallet-core-module wallet-backend; do
             nix build "github:logos-co/logos-monero-$m#install" -o "result-$m"
           done
-          mkdir -p tree/modules tree/plugins
+          nix build 'github:logos-co/logos-monero-wallet-ui#install' -o result-wallet
+          mkdir -p tree/modules
           cp -rL result-*/modules/* tree/modules/
-          cp -rL result-wallet-ui/plugins/* tree/plugins/
           chmod -R u+w tree
         expect_contains: ["monero_wallet_ui", "monero_wallet_backend", "monero_wallet_core_module"]
 
@@ -59,7 +57,8 @@ sections:
     steps:
       - title: "Create a wallet, watch it open and sync, then read the receive address"
         ui_test:
-          launch: "env QT_FORCE_STDERR_LOGGING=1 QML_INSPECTOR_PORT=3768 ./result-app/bin/logos-standalone-app -p ./tree/plugins/monero_wallet_ui -m ./tree/modules --load monero_wallet_backend -u ./userdir"
+          # LOGOS_NO_SCHEME_REGISTER: a test run leaves the machine's logos:// handler alone.
+          launch: "env QT_FORCE_STDERR_LOGGING=1 QML_INSPECTOR_PORT=3768 LOGOS_NO_SCHEME_REGISTER=1 ./result-basecamp/bin/LogosBasecamp --module ./result-wallet --modules-dir ./tree/modules --user-dir ./userdir"
           qt_mcp: "result-mcp"
           launch_timeout: 600
           tests:
