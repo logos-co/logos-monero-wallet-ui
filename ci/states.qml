@@ -484,6 +484,7 @@ Item {
         },
         function (v) {
             expect("catching up says so", prop("torRouteLine", "text"), "Catching up directly. Sends wait until the wallet has moved to Tor.")
+            expect("...and so does the chip, not the Tor node's check", prop("nodeChip", "text"), "catching up directly")
             expect("...sends wait", shown("sendWaitNote") + " " + prop("reviewButton", "enabled"), "true false")
             fake.statusJson = JSON.stringify({ state: "ready", wallet: "w", network: "stagenet", route: "waiting_for_tor", onTor: false,
                                                waitingForTor: true, torUse: "identifying", connected: false })
@@ -495,6 +496,7 @@ Item {
         },
         function (v) {
             expect("on Tor", prop("torRouteLine", "text"), "Over Tor")
+            expect("...the chip names the Tor node", prop("nodeChip", "text"), "node over Tor 900ms")
             expect("...sends open", shown("sendWaitNote") + " " + prop("reviewButton", "enabled"), "false true")
             expect("a node that isn't holding payments: no notice", shown("nodeHoldsSendsNotice"), false)
             fake.sendStatusJson = JSON.stringify({ state: "sent", txids: "ab12" })
