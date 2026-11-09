@@ -61,9 +61,14 @@ Item {
     readonly property string torUseIntro: "Your own node is the most private. Public sources are run by other people."
     function torUseNetworkLine() { return "For " + (root.torUseNetwork || "this network") + ". Each network has its own setting." }
     readonly property string ownNodeSummary: "A Monero node, in Logos or at an address."
-    readonly property string ownNodeNote: "<b>Benefits:</b> the wallet asks only your node for the chain and sends only through it, so "
-                                          + "no one else's node sees your wallet's requests or which outputs your sends spend. Your node "
-                                          + "passes your sends on to its peers from its own IP address.<br><br>"
+    readonly property string ownNodeNote: (localSends !== ""
+        ? "<b>Benefits:</b> the wallet asks only your node for the chain, so no one else's node sees your wallet's requests.<br><br>"
+          + "<b>Sending:</b> payments go as Sending payments says: through a public node over Tor, which sees them but not your "
+          + "IP address, or through your node, which passes them to its peers from its own IP address (over Tor when the "
+          + "Monero Node app sends over Tor).<br><br>"
+        : "<b>Benefits:</b> the wallet asks only your node for the chain and sends only through it, so "
+          + "no one else's node sees your wallet's requests or which outputs your sends spend. Your node "
+          + "passes your sends on to its peers from its own IP address.<br><br>")
                                           + "<b>Costs:</b> on mainnet about 60 GB of disk pruned or 250 GB unpruned, a first sync that "
                                           + "takes hours to days, and the node must run while you use the wallet."
     readonly property string publicSummary: "Monero nodes run by other people."
@@ -233,6 +238,34 @@ Item {
     // Where the stored record gets the chain.
     readonly property string storedSource: nodeCfg.mode === "local" ? "own-logos" : nodeCfg.own === true ? "own-address"
         : (nodeCfg.source === "default" || !nodeCfg.url) ? "public-picked" : "public-chosen"
+    // With your own node stored, where payments go: the node module's `sends`, absent from an older one.
+    readonly property var sends: node.sends || torUseInfo.sends || ({})
+    readonly property string localSends: typeof sends.localSends === "string" ? sends.localSends : ""
+    readonly property string sendsRecommended: sends.localSendsRecommended || "servers"
+    readonly property var sendNode: sends.sendNode || ({})
+    // For the node stored, and only while the form shows it; regtest has no public node to send through.
+    readonly property bool sendsShown: localSends !== "" && !!sendNode.url && ndSource === "own"
+                                       && storedSource === (ndOwnKind === "logos" ? "own-logos" : "own-address")
+    property string sendsNote: ""
+    readonly property string sendsServersNote: "The wallet hands your payment to a public node over Tor, then goes back to your node. That "
+                                               + "node sees the payment but not your IP address, and your node's peers don't see it leave "
+                                               + "your node first. Each send takes a few seconds more."
+    readonly property string sendsNodeNote: ndOwnKind === "logos" && sendsRecommended === "node"
+        ? "No public node is contacted. The Monero Node app sends it over Tor, so its peers can't tell it came from your node. "
+          + "Until the node reaches Tor, the payment waits in it."
+        : ndOwnKind === "logos"
+        ? "No public node is contacted, but your node passes it to its peers from this computer's IP address, so they can tell it "
+          + "came from you. On mainnet the Monero Node app can send over Tor."
+        : "No public node is contacted, but your node passes it to its peers from its own IP address, unless it is set to send over Tor."
+    // Your node in Logos sends over Tor only, and has no Tor peer yet: it holds payments until it has one.
+    readonly property var nodeInLogos: node.mode === "local" && node.local ? node.local : ({})
+    readonly property bool nodeHoldsSends: nodeInLogos.txProxyWaiting === true && localSends !== "servers"
+    function setLocalSends(via) {
+        root.sendsNote = ""
+        logos.watch(backend.setLocalSends(via),
+                    function (e) { root.sendsNote = e || "" },
+                    function () { root.sendsNote = "The wallet backend did not answer." })
+    }
     // The built-in Tor as the node module last saw it, on a route through it.
     readonly property var torView: node.tor || null
     property string torNote: ""
@@ -503,6 +536,23 @@ Item {
         }
     }
 
+    // One "Sending payments" route under Your own node.
+    component SendsOption: RowLayout {
+        id: sendsOption
+        property string via: ""
+        property string label: ""
+        property string note: ""
+        Layout.fillWidth: true
+        spacing: Theme.spacing.small
+        LogosRadioButton { objectName: "localSends_" + sendsOption.via; checkable: false; checked: root.localSends === sendsOption.via
+                           text: sendsOption.label; onClicked: if (!checked) root.setLocalSends(sendsOption.via) }
+        LogosBadge { objectName: "localSendsRecommended_" + sendsOption.via; visible: root.sendsRecommended === sendsOption.via
+                     text: "Recommended"; color: Theme.palette.success }
+        ChoiceInfo { objectName: "localSendsInfo_" + sendsOption.via; title: sendsOption.label
+                     lines: [{ name: "localSendsNote_" + sendsOption.via, text: sendsOption.note }] }
+        Item { Layout.fillWidth: true }
+    }
+
     // One "Use Tor for" option: its label and tags; what happens, pros and cons behind its "i".
     component TorUseOption: RowLayout {
         id: option
@@ -640,6 +690,18 @@ Item {
 
         LogosText { objectName: "torRouteLine"; visible: root.walletOpen && text !== ""; text: root.routeLine(); textFormat: Text.PlainText
                     wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.textSecondary }
+
+        LogosNotice {
+            objectName: "nodeHoldsSendsNotice"
+            Layout.fillWidth: true
+            shown: root.ready && root.nodeHoldsSends
+            title: "Your node is waiting for Tor"
+            // The Monero Node module's reason already says payments wait, and for what.
+            message: (root.nodeInLogos.txProxyReason || "Payments you send wait in your node until it reaches Tor.")
+                     + " In Activity they show as pending, and they don't go out over the ordinary network."
+            actions: [ LogosButton { objectName: "nodeHoldsSendsButton"; text: "Open Monero Node"; enabled: root.ready
+                                     onClicked: root.manageLocalNode() } ]
+        }
 
         LogosText { objectName: "errorLine"; visible: root.ready && backend.lastError !== ""; text: root.ready ? backend.lastError : ""; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true; color: Theme.palette.error }
 
@@ -832,9 +894,11 @@ Item {
                         LogosText { objectName: "previewAmount"; visible: !!send.preview; textFormat: Text.PlainText; text: "Amount: " + (send.preview ? send.preview.amountXmr : "") + " XMR" }
                         LogosText { objectName: "previewFee"; visible: !!send.preview; textFormat: Text.PlainText; text: "Fee: " + (send.preview ? send.preview.feeXmr : "") + " XMR" }
                         LogosText { objectName: "previewTotal"; visible: !!send.preview; textFormat: Text.PlainText; text: "Total: " + (send.preview ? send.preview.totalXmr : "") + " XMR" }
-                        LogosText { visible: send.state === "sent"; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
-                                    text: send.txids ? ("Broadcast. txid: " + send.txids)
-                                                     : "Broadcast. Its transaction id will appear in Activity once the wallet re-syncs." }
+                        LogosText { objectName: "sendSentLine"; visible: send.state === "sent"; textFormat: Text.PlainText
+                                    wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
+                                    text: (root.nodeHoldsSends ? "Handed to your node, which holds it until it reaches Tor." : "Broadcast.")
+                                          + (send.txids ? " txid: " + send.txids
+                                                        : " Its transaction id will appear in Activity once the wallet re-syncs.") }
                         RowLayout {
                             LogosButton { objectName: "confirmSendButton"; text: "Confirm and broadcast"; visible: send.state === "previewed"; onClicked: backend.confirmSend() }
                             LogosButton {
@@ -1541,6 +1605,24 @@ Item {
                                 // under the dark theme that is near-black on near-black.
                                 LogosCheckbox { id: ndTrusted; objectName: "nodeTrustedBox"; text: "Trusted daemon"
                                                 visible: root.isLoopback(ndOwnAddr.text) }
+                            }
+                            // Where payments go out, with your node stored. Stored at once, like Use Tor for.
+                            ColumnLayout {
+                                objectName: "localSendsPane"
+                                visible: root.sendsShown
+                                Layout.fillWidth: true
+                                Layout.topMargin: Theme.spacing.small
+                                spacing: Theme.spacing.tiny
+                                LogosText { text: "Sending payments"; font.weight: Theme.typography.weightBold }
+                                SendsOption { via: "servers"; label: "Through a public node, over Tor"; note: root.sendsServersNote }
+                                LogosText { objectName: "localSendsServersLine"; visible: root.localSends === "servers"
+                                            Layout.fillWidth: true; Layout.leftMargin: nodeForm.indent; wrapMode: Text.Wrap
+                                            textFormat: Text.PlainText; color: Theme.palette.textTertiary
+                                            text: root.sendNode.operator ? "Through " + root.sendNode.operator + "'s node, at its onion address."
+                                                                         : "Through a public node, at its onion address." }
+                                SendsOption { via: "node"; label: "Through your node"; note: root.sendsNodeNote }
+                                LogosText { objectName: "localSendsNote"; visible: text !== ""; Layout.fillWidth: true; wrapMode: Text.Wrap
+                                            textFormat: Text.PlainText; color: Theme.palette.error; text: root.sendsNote }
                             }
                         }
 

@@ -86,6 +86,9 @@ class MoneroWalletUi
     SLOT(void saveNodeConfig(QString configJson))
     // CUSTODIAN, refused while a wallet is open. "" when stored, else why not.
     SLOT(QString setTorUse(QString mode))
+    // With your own node stored, where the active network's payments go: servers (a public node
+    // over Tor) or node. CUSTODIAN, refused while a wallet is open. "" when stored, else why not.
+    SLOT(QString setLocalSends(QString via))
     SLOT(void refreshLocalNode())
 
     // ---- receiving ----
